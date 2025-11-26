@@ -249,12 +249,14 @@
         }
 
         .cooldown-display {
-            position: absolute;
-            bottom: 40px;
+            position: fixed;  /* ✅ 修复：从 absolute 改为 fixed，确保始终可见 */
             left: 50%;
             transform: translateX(-50%);
             width: 120px;
             height: 120px;
+            z-index: 400;  /* ✅ 修复：添加高层级，确保不被其他元素覆盖 */
+            /* ✅ 修复：支持有刘海手机的安全区域，使用 calc 确保兼容性 */
+            bottom: calc(40px + env(safe-area-inset-bottom, 0px));
         }
         
         .cooldown-circle {

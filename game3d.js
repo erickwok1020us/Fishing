@@ -2150,6 +2150,11 @@ class MundoKnifeGame3D {
     }
 
     updateCooldownDisplay() {
+        // ⚡ 运行时保护：防止在初始化前调用
+        if (!this.playerSelf) {
+            return;
+        }
+        
         const now = Date.now();
         const timeSinceLastKnife = now - this.playerSelf.lastKnifeTime;
         const cooldownProgress = Math.min(timeSinceLastKnife / this.playerSelf.knifeCooldown, 1);
@@ -2159,6 +2164,11 @@ class MundoKnifeGame3D {
         const cooldownTime = document.getElementById('cooldownTime');
         const cooldownBg = document.querySelector('.cooldown-circle-bg');
         
+        // 安全检查
+        if (!cooldownCircle || !cooldownTime || !cooldownBg) {
+            return;
+        }
+        
         const radius = 56;
         const circumference = 2 * Math.PI * radius;
         const offset = circumference * (1 - cooldownProgress);
@@ -2167,13 +2177,17 @@ class MundoKnifeGame3D {
         cooldownCircle.style.strokeDashoffset = offset;
         
         if (cooldownProgress < 1) {
+            // 冷却中：红色圆圈 + 倒计时
             cooldownTime.textContent = remainingTime.toFixed(1) + 's';
             cooldownBg.style.stroke = '#ff0000';
             cooldownCircle.style.opacity = '1';
+            cooldownCircle.style.stroke = '#ff0000';
         } else {
+            // 准备好：绿色半透明圆圈 + "READY" 文字
             cooldownTime.textContent = 'READY';
             cooldownBg.style.stroke = '#00ff00';
-            cooldownCircle.style.opacity = '0';
+            cooldownCircle.style.opacity = '0.5';  // ✅ 修复：保持可见（半透明绿色）
+            cooldownCircle.style.stroke = '#00ff00';
         }
     }
 
