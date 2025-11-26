@@ -1,8 +1,21 @@
 <!DOCTYPE html>
 <!--
     Mundo Cleaver - Main HTML File
-    Version: v447
-    Last Updated: 2025-11-14
+    Version: v449
+    Last Updated: 2025-11-27
+    
+    Changes in v449:
+    - **FIXED**: Q skill cooldown display visibility issue
+    - Fixed cooldown circle disappearing when ready (opacity 0 -> 0.5)
+    - Changed position from absolute to fixed for better visibility
+    - Added z-index 400 to prevent overlay issues
+    - Added runtime protection and safety checks
+    
+    Changes in v448:
+    - **FIXED**: FBX animation file names for R2 CDN loading
+    - Fixed Animation_Run_60.fbx to Animation_RunFast_frame_rate_60.fbx
+    - Fixed Animation_Death_60.fbx to Animation_Dead_frame_rate_60.fbx
+    - Added improved error handling and loading progress logs
     
     Changes in v358:
     - **CRITICAL FPS FIX**: Fixed background video not being paused when game starts
@@ -1365,6 +1378,6 @@
     <script src="client/net/TimeSync.js"></script>
     <script src="client/net/InputBuffer.js"></script>
     <script src="client/net/Reconciler.js"></script>
-    <script src="game3d.js?v=447"></script>
+    <script src="game3d.js?v=449"></script>
 </body>
 </html>
