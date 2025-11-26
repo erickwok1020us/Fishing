@@ -37,8 +37,8 @@ async function preloadGameAssets() {
         const loader = new THREE.FBXLoader();
         const animationFiles = {
             idle: `${CDN_BASE_URL}/Animation_Idle_frame_rate_60.fbx`,
-            run: `${CDN_BASE_URL}/Animation_Run_60.fbx`,
-            death: `${CDN_BASE_URL}/Animation_Death_60.fbx`
+            run: `${CDN_BASE_URL}/Animation_RunFast_frame_rate_60.fbx`,
+            death: `${CDN_BASE_URL}/Animation_Dead_frame_rate_60.fbx`
         };
         
         let loadedCount = 0;
@@ -46,17 +46,31 @@ async function preloadGameAssets() {
         
         const loadPromises = Object.entries(animationFiles).map(([key, file]) => {
             return new Promise((resolve, reject) => {
-                loader.load(file, (fbx) => {
-                    if (key === 'idle') {
-                        preloadedAssets.characterModel = fbx;
+                loader.load(
+                    file, 
+                    (fbx) => {
+                        if (key === 'idle') {
+                            preloadedAssets.characterModel = fbx;
+                        }
+                        preloadedAssets.animations[key] = fbx.animations[0];
+                        loadedCount++;
+                        const progress = Math.floor((loadedCount / totalFiles) * 60);
+                        updateInitialLoadingProgress(progress, 'Loading character animations...', `Loaded ${key} animation (${loadedCount}/${totalFiles})`);
+                        console.log(`✅ Preloaded: ${key} Animation from ${file}`);
+                        resolve();
+                    }, 
+                    (progress) => {
+                        // Loading progress callback
+                        if (progress.lengthComputable) {
+                            const percent = (progress.loaded / progress.total) * 100;
+                            console.log(`📥 Loading ${key}: ${percent.toFixed(1)}%`);
+                        }
+                    }, 
+                    (error) => {
+                        console.error(`❌ Failed to load ${key} animation from ${file}:`, error);
+                        reject(new Error(`Failed to load ${key} animation: ${error.message || 'Unknown error'}`));
                     }
-                    preloadedAssets.animations[key] = fbx.animations[0];
-                    loadedCount++;
-                    const progress = Math.floor((loadedCount / totalFiles) * 60);
-                    updateInitialLoadingProgress(progress, 'Loading character animations...', `Loaded ${key} animation (${loadedCount}/${totalFiles})`);
-                    console.log(`Preloaded: ${key} Animation`);
-                    resolve();
-                }, undefined, reject);
+                );
             });
         });
         
@@ -107,62 +121,75 @@ async function preloadGameAssets() {
         
         const gltfLoader = new THREE.GLTFLoader();
         await new Promise((resolve, reject) => {
-            gltfLoader.load(`${CDN_BASE_URL}/new_map.glb`, (gltf) => {
-                const mapModel = gltf.scene;
-                
-                const box = new THREE.Box3().setFromObject(mapModel);
-                const size = new THREE.Vector3();
-                box.getSize(size);
-                
-                const scaleX = 200 / size.x;
-                const scaleZ = 150 / size.z;
-                const uniformScale = Math.min(scaleX, scaleZ);
-                
-                mapModel.scale.set(uniformScale, uniformScale, uniformScale);
-                mapModel.rotation.y = Math.PI / 2;
-                mapModel.position.y = 0;
-                
-                mapModel.traverse((child) => {
-                    if (child.isMesh) {
-                        if (child.name === 'Mesh_0' && child.material) {
-                            child.material.color.set(0x4db8ff);
-                            child.material.needsUpdate = true;
+            const mapUrl = `${CDN_BASE_URL}/new_map.glb`;
+            console.log(`📥 Loading map from: ${mapUrl}`);
+            
+            gltfLoader.load(
+                mapUrl, 
+                (gltf) => {
+                    const mapModel = gltf.scene;
+                    
+                    const box = new THREE.Box3().setFromObject(mapModel);
+                    const size = new THREE.Vector3();
+                    box.getSize(size);
+                    
+                    const scaleX = 200 / size.x;
+                    const scaleZ = 150 / size.z;
+                    const uniformScale = Math.min(scaleX, scaleZ);
+                    
+                    mapModel.scale.set(uniformScale, uniformScale, uniformScale);
+                    mapModel.rotation.y = Math.PI / 2;
+                    mapModel.position.y = 0;
+                    
+                    mapModel.traverse((child) => {
+                        if (child.isMesh) {
+                            if (child.name === 'Mesh_0' && child.material) {
+                                child.material.color.set(0x4db8ff);
+                                child.material.needsUpdate = true;
+                            }
                         }
+                    });
+                    
+                    preloadedAssets.scene.add(mapModel);
+                    
+                    const scaledBox = new THREE.Box3().setFromObject(mapModel);
+                    const scaledSize = new THREE.Vector3();
+                    scaledBox.getSize(scaledSize);
+                    
+                    const groundSurfaceY = scaledBox.max.y;
+                    
+                    const invisibleGroundGeometry = new THREE.PlaneGeometry(500, 500);
+                    const invisibleGroundMaterial = new THREE.MeshBasicMaterial({ 
+                        color: 0x000000, 
+                        transparent: true, 
+                        opacity: 0,
+                        side: THREE.DoubleSide
+                    });
+                    const invisibleGround = new THREE.Mesh(invisibleGroundGeometry, invisibleGroundMaterial);
+                    invisibleGround.rotation.x = -Math.PI / 2;
+                    invisibleGround.position.y = groundSurfaceY;
+                    preloadedAssets.scene.add(invisibleGround);
+                    
+                    preloadedAssets.terrain = {
+                        ground: mapModel,
+                        invisibleGround: invisibleGround,
+                        groundSurfaceY: groundSurfaceY
+                    };
+                    
+                    console.log('✅ 3D map model loaded and added to scene');
+                    resolve();
+                }, 
+                (progress) => {
+                    if (progress.lengthComputable) {
+                        const percent = (progress.loaded / progress.total) * 100;
+                        console.log(`📥 Loading map: ${percent.toFixed(1)}%`);
                     }
-                });
-                
-                preloadedAssets.scene.add(mapModel);
-                
-                const scaledBox = new THREE.Box3().setFromObject(mapModel);
-                const scaledSize = new THREE.Vector3();
-                scaledBox.getSize(scaledSize);
-                
-                const groundSurfaceY = scaledBox.max.y;
-                
-                const invisibleGroundGeometry = new THREE.PlaneGeometry(500, 500);
-                const invisibleGroundMaterial = new THREE.MeshBasicMaterial({ 
-                    color: 0x000000, 
-                    transparent: true, 
-                    opacity: 0,
-                    side: THREE.DoubleSide
-                });
-                const invisibleGround = new THREE.Mesh(invisibleGroundGeometry, invisibleGroundMaterial);
-                invisibleGround.rotation.x = -Math.PI / 2;
-                invisibleGround.position.y = groundSurfaceY;
-                preloadedAssets.scene.add(invisibleGround);
-                
-                preloadedAssets.terrain = {
-                    ground: mapModel,
-                    invisibleGround: invisibleGround,
-                    groundSurfaceY: groundSurfaceY
-                };
-                
-                console.log('3D map model loaded and added to scene');
-                resolve();
-            }, undefined, (error) => {
-                console.error('Error loading GLB map during preload:', error);
-                reject(error);
-            });
+                }, 
+                (error) => {
+                    console.error(`❌ Error loading GLB map from ${mapUrl}:`, error);
+                    reject(new Error(`Failed to load map: ${error.message || 'Unknown error'}`));
+                }
+            );
         });
         
         updateInitialLoadingProgress(100, 'Ready to play!', 'All assets loaded successfully');
@@ -495,8 +522,8 @@ class MundoKnifeGame3D {
         
         const animationFiles = {
             idle: `${CDN_BASE_URL}/Animation_Idle_frame_rate_60.fbx`,
-            run: `${CDN_BASE_URL}/Animation_Run_60.fbx`,
-            death: `${CDN_BASE_URL}/Animation_Death_60.fbx`
+            run: `${CDN_BASE_URL}/Animation_RunFast_frame_rate_60.fbx`,
+            death: `${CDN_BASE_URL}/Animation_Dead_frame_rate_60.fbx`
         };
         
         this.characterModel = null;
@@ -1244,15 +1271,32 @@ class MundoKnifeGame3D {
                 this.lastMoveInputTime = Date.now();
                 const actionId = `${Date.now()}-${Math.random()}`;
                 
+                // ⚡ INSTANT CLIENT-SIDE PREDICTION - Move immediately!
+                // Calculate distance to determine if we should move instantly or gradually
+                const dx = point.x - this.playerSelf.x;
+                const dz = point.z - this.playerSelf.z;
+                const distance = Math.sqrt(dx * dx + dz * dz);
+                
+                // For short distances, move instantly (like LoL)
+                if (distance < 50) {
+                    this.playerSelf.x = point.x;
+                    this.playerSelf.z = point.z;
+                    if (this.playerSelf.mesh) {
+                        this.playerSelf.mesh.position.x = point.x;
+                        this.playerSelf.mesh.position.z = point.z;
+                    }
+                }
+                
+                // Always set target for smooth movement
+                this.playerSelf.targetX = point.x;
+                this.playerSelf.targetZ = point.z;
+                this.playerSelf.isMoving = distance > 0.5;
+                
                 if (this.NETCODE.prediction && this.inputBuffer) {
                     const seq = this.inputBuffer.addInput({
                         targetX: point.x,
                         targetZ: point.z
                     });
-                    
-                    this.playerSelf.targetX = point.x;
-                    this.playerSelf.targetZ = point.z;
-                    this.playerSelf.isMoving = true;
                     
                     const clientTime = this.timeSync ? this.timeSync.getServerTime() : Date.now();
                     
@@ -1265,10 +1309,6 @@ class MundoKnifeGame3D {
                         clientTime: clientTime
                     });
                 } else {
-                    this.playerSelf.targetX = point.x;
-                    this.playerSelf.targetZ = point.z;
-                    this.playerSelf.isMoving = true;
-                    
                     socket.emit('playerMove', {
                         roomCode: roomCode,
                         targetX: point.x,
@@ -1276,6 +1316,8 @@ class MundoKnifeGame3D {
                         actionId: actionId
                     });
                 }
+                
+                console.log(`⚡ [INSTANT-MOVE] Player moved instantly to (${point.x.toFixed(1)}, ${point.z.toFixed(1)})`);
             } else {
                 this.playerSelf.targetX = point.x;
                 this.playerSelf.targetZ = point.z;
@@ -1839,8 +1881,17 @@ class MundoKnifeGame3D {
     }
 
     checkKnifeCollisions(knife, knifeIndex) {
-        if (this.isMultiplayer) {
-            return;
+        // ⚡ Enable client-side prediction for multiplayer too!
+        // This provides instant feedback while server validates
+        const isPredictedKnife = knife.isPredicted && this.isMultiplayer;
+        
+        // Skip collision check for predicted knives that are too old (waiting for server)
+        if (isPredictedKnife && knife.spawnTime) {
+            const age = Date.now() - knife.spawnTime;
+            // If predicted knife is older than 2 seconds and not confirmed, skip local collision
+            if (age > 2000 && !knife.serverConfirmed) {
+                return;
+            }
         }
         
         const knifeWorldPos = new THREE.Vector3();
@@ -1867,27 +1918,60 @@ class MundoKnifeGame3D {
             const threshold = this.characterSize * 1.05;
             
             if (distance < threshold) {
-                console.log(`💥 [HIT-LOCAL] Knife from Team${thrower.team} hit Team${target.team} Player${target.playerIndex}!`);
+                const isPredictedHit = isPredictedKnife && this.isMultiplayer;
                 
-                this.createBloodEffect(targetWorldPos.x, targetWorldPos.y, targetWorldPos.z);
-                
-                const hitSound = document.getElementById('hitSound');
-                if (hitSound) {
-                    hitSound.currentTime = 0;
-                    hitSound.play().catch(e => {});
-                }
-                
-                this.disposeKnife(knife);
-                this.knives.splice(knifeIndex, 1);
-                
-                target.health--;
-                console.log(`💔 [HEALTH] Team${target.team} Player${target.playerIndex} health after hit: ${target.health}/${target.maxHealth}`);
-                
-                this.updateHealthDisplay();
-                
-                if (target.health <= 0) {
-                    console.log(`☠️ [DEATH] Team${target.team} Player${target.playerIndex} has died`);
-                    this.handlePlayerDeath(target);
+                if (isPredictedHit) {
+                    // ⚡ PREDICTED HIT - Show instant feedback, but mark as predicted
+                    console.log(`💥 [HIT-PREDICTED] Predicted knife hit! Waiting for server confirmation...`);
+                    
+                    // Mark knife as hit (will be confirmed/denied by server)
+                    knife.predictedHit = {
+                        target: target,
+                        timestamp: Date.now()
+                    };
+                    
+                    // Show visual feedback immediately
+                    this.createBloodEffect(targetWorldPos.x, targetWorldPos.y, targetWorldPos.z);
+                    
+                    const hitSound = document.getElementById('hitSound');
+                    if (hitSound) {
+                        hitSound.currentTime = 0;
+                        hitSound.play().catch(e => {});
+                    }
+                    
+                    // Apply predicted damage (will be corrected by server)
+                    const predictedHealth = target.health - 1;
+                    target.predictedHealth = predictedHealth;
+                    
+                    // ⚡ Show predicted health immediately for instant feedback
+                    this.updateHealthDisplay();
+                    
+                    // Don't dispose knife yet - wait for server confirmation
+                    // The knife will be removed when server confirms or denies
+                } else {
+                    // Single player or server-confirmed hit
+                    console.log(`💥 [HIT-LOCAL] Knife from Team${thrower.team} hit Team${target.team} Player${target.playerIndex}!`);
+                    
+                    this.createBloodEffect(targetWorldPos.x, targetWorldPos.y, targetWorldPos.z);
+                    
+                    const hitSound = document.getElementById('hitSound');
+                    if (hitSound) {
+                        hitSound.currentTime = 0;
+                        hitSound.play().catch(e => {});
+                    }
+                    
+                    this.disposeKnife(knife);
+                    this.knives.splice(knifeIndex, 1);
+                    
+                    target.health--;
+                    console.log(`💔 [HEALTH] Team${target.team} Player${target.playerIndex} health after hit: ${target.health}/${target.maxHealth}`);
+                    
+                    this.updateHealthDisplay();
+                    
+                    if (target.health <= 0) {
+                        console.log(`☠️ [DEATH] Team${target.team} Player${target.playerIndex} has died`);
+                        this.handlePlayerDeath(target);
+                    }
                 }
             }
         });
@@ -2002,12 +2086,21 @@ class MundoKnifeGame3D {
         const player2Hearts = document.getElementById('player2Health')?.children;
         
         if (player1Hearts && this.team1[0]) {
+            // ⚡ Show predicted health if available, otherwise use actual health
+            const displayHealth = this.team1[0].predictedHealth !== undefined 
+                ? this.team1[0].predictedHealth 
+                : this.team1[0].health;
+            
             for (let i = 0; i < 5; i++) {
-                player1Hearts[i].classList.toggle('empty', i >= this.team1[0].health);
+                player1Hearts[i].classList.toggle('empty', i >= displayHealth);
             }
         }
         
         if (player2Hearts && this.team2[0]) {
+            // ⚡ Show predicted health if available, otherwise use actual health
+            const displayHealth = this.team2[0].predictedHealth !== undefined 
+                ? this.team2[0].predictedHealth 
+                : this.team2[0].health;
             for (let i = 0; i < 5; i++) {
                 player2Hearts[i].classList.toggle('empty', i >= this.team2[0].health);
             }
@@ -2331,16 +2424,57 @@ class MundoKnifeGame3D {
         });
         
         socket.on('serverKnifeHit', (data) => {
+            // ⚡ Server confirmed a hit - check if we predicted it
+            const knife = this.knives.find(k => k.knifeId === data.knifeId || (k.isPredicted && k.predictedHit));
             
-            this.createBloodEffect(data.hitX, 5, data.hitZ);
-            
-            const hitSound = document.getElementById('hitSound');
-            if (hitSound) {
-                hitSound.currentTime = 0;
-                hitSound.play().catch(e => {});
+            if (knife && knife.predictedHit) {
+                // We predicted this hit! Confirm it
+                console.log(`✅ [HIT-CONFIRMED] Server confirmed our predicted hit!`);
+                const predictedTarget = knife.predictedHit.target;
+                
+                // Apply actual server health (may differ from prediction)
+                if (data.targetTeam !== undefined && data.health !== undefined) {
+                    const targetTeam = data.targetTeam === 1 ? this.team1 : this.team2;
+                    const actualTarget = targetTeam.find(p => p.playerIndex === data.targetPlayerIndex);
+                    if (actualTarget) {
+                        actualTarget.health = data.health;
+                        actualTarget.predictedHealth = undefined; // Clear prediction
+                        this.updateHealthDisplay();
+                        
+                        if (actualTarget.health <= 0) {
+                            this.handlePlayerDeath(actualTarget);
+                        }
+                    }
+                }
+                
+                // Clear predicted hit flag
+                knife.predictedHit = null;
+            } else {
+                // Server hit we didn't predict - show effects
+                this.createBloodEffect(data.hitX, 5, data.hitZ);
+                
+                const hitSound = document.getElementById('hitSound');
+                if (hitSound) {
+                    hitSound.currentTime = 0;
+                    hitSound.play().catch(e => {});
+                }
+                
+                // Apply health update if provided
+                if (data.targetTeam !== undefined && data.health !== undefined) {
+                    const targetTeam = data.targetTeam === 1 ? this.team1 : this.team2;
+                    const actualTarget = targetTeam.find(p => p.playerIndex === data.targetPlayerIndex);
+                    if (actualTarget) {
+                        actualTarget.health = data.health;
+                        this.updateHealthDisplay();
+                        
+                        if (actualTarget.health <= 0) {
+                            this.handlePlayerDeath(actualTarget);
+                        }
+                    }
+                }
             }
             
-            const knife = this.knives.find(k => k.knifeId === data.knifeId);
+            // Remove knife
             if (knife) {
                 this.disposeKnife(knife);
                 const index = this.knives.indexOf(knife);
@@ -2425,17 +2559,31 @@ class MundoKnifeGame3D {
                                 isDead: serverPlayer.isDead
                             }, unackedInputs);
                         } else {
+                            // ⚡ Improved reconciliation - only correct large errors
                             const dx = this.playerSelf.x - serverPlayer.x;
                             const dz = this.playerSelf.z - serverPlayer.z;
                             const positionErrorSq = dx * dx + dz * dz;
                             
-                            if (positionErrorSq > 25) {
-                                this.playerSelf.x = serverPlayer.x;
-                                this.playerSelf.z = serverPlayer.z;
+                            // Only correct if error is significant (reduced threshold for smoother experience)
+                            if (positionErrorSq > 100) { // Increased from 25 to 100 to reduce corrections
+                                // Smooth correction instead of instant snap
+                                const errorDist = Math.sqrt(positionErrorSq);
+                                const correctionSpeed = 0.3; // Smooth correction factor
+                                
+                                this.playerSelf.x += (serverPlayer.x - this.playerSelf.x) * correctionSpeed;
+                                this.playerSelf.z += (serverPlayer.z - this.playerSelf.z) * correctionSpeed;
+                                
+                                if (this.playerSelf.mesh) {
+                                    this.playerSelf.mesh.position.x = this.playerSelf.x;
+                                    this.playerSelf.mesh.position.z = this.playerSelf.z;
+                                }
+                                
+                                console.log(`🔄 [RECONCILE] Smoothly correcting position error: ${errorDist.toFixed(2)} units`);
                             }
                             
+                            // Don't override target if player just moved (within last 200ms)
                             const timeSinceLastInput = Date.now() - this.lastMoveInputTime;
-                            if (serverPlayer.targetX != null && serverPlayer.targetZ != null && timeSinceLastInput > 100) {
+                            if (serverPlayer.targetX != null && serverPlayer.targetZ != null && timeSinceLastInput > 200) {
                                 this.playerSelf.targetX = serverPlayer.targetX;
                                 this.playerSelf.targetZ = serverPlayer.targetZ;
                             }
