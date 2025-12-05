@@ -1,5 +1,15 @@
 const CDN_BASE_URL = 'https://pub-2d994ab822d5426bad338ecb218683d8.r2.dev';
 
+// Debug flag - set to false in production to disable verbose logging
+const DEBUG = false;
+
+// Helper function for debug logging - only logs when DEBUG is true
+function debugLog(...args) {
+    if (DEBUG) {
+        console.log(...args);
+    }
+}
+
 let preloadedAssets = {
     characterModel: null,
     animations: {},
@@ -37,8 +47,8 @@ async function preloadGameAssets() {
         const loader = new THREE.FBXLoader();
         const animationFiles = {
             idle: `${CDN_BASE_URL}/Animation_Idle_frame_rate_60.fbx`,
-            run: `${CDN_BASE_URL}/Animation_RunFast_frame_rate_60.fbx`,
-            death: `${CDN_BASE_URL}/Animation_Dead_frame_rate_60.fbx`
+            run: `${CDN_BASE_URL}/Animation_Run_60.fbx`,
+            death: `${CDN_BASE_URL}/Animation_Death_60.fbx`
         };
         
         let loadedCount = 0;
@@ -46,31 +56,17 @@ async function preloadGameAssets() {
         
         const loadPromises = Object.entries(animationFiles).map(([key, file]) => {
             return new Promise((resolve, reject) => {
-                loader.load(
-                    file, 
-                    (fbx) => {
-                        if (key === 'idle') {
-                            preloadedAssets.characterModel = fbx;
-                        }
-                        preloadedAssets.animations[key] = fbx.animations[0];
-                        loadedCount++;
-                        const progress = Math.floor((loadedCount / totalFiles) * 60);
-                        updateInitialLoadingProgress(progress, 'Loading character animations...', `Loaded ${key} animation (${loadedCount}/${totalFiles})`);
-                        console.log(`✅ Preloaded: ${key} Animation from ${file}`);
-                        resolve();
-                    }, 
-                    (progress) => {
-                        // Loading progress callback
-                        if (progress.lengthComputable) {
-                            const percent = (progress.loaded / progress.total) * 100;
-                            console.log(`📥 Loading ${key}: ${percent.toFixed(1)}%`);
-                        }
-                    }, 
-                    (error) => {
-                        console.error(`❌ Failed to load ${key} animation from ${file}:`, error);
-                        reject(new Error(`Failed to load ${key} animation: ${error.message || 'Unknown error'}`));
+                loader.load(file, (fbx) => {
+                    if (key === 'idle') {
+                        preloadedAssets.characterModel = fbx;
                     }
-                );
+                    preloadedAssets.animations[key] = fbx.animations[0];
+                    loadedCount++;
+                    const progress = Math.floor((loadedCount / totalFiles) * 60);
+                    updateInitialLoadingProgress(progress, 'Loading character animations...', `Loaded ${key} animation (${loadedCount}/${totalFiles})`);
+                    console.log(`Preloaded: ${key} Animation`);
+                    resolve();
+                }, undefined, reject);
             });
         });
         
@@ -121,75 +117,62 @@ async function preloadGameAssets() {
         
         const gltfLoader = new THREE.GLTFLoader();
         await new Promise((resolve, reject) => {
-            const mapUrl = `${CDN_BASE_URL}/new_map.glb`;
-            console.log(`📥 Loading map from: ${mapUrl}`);
-            
-            gltfLoader.load(
-                mapUrl, 
-                (gltf) => {
-                    const mapModel = gltf.scene;
-                    
-                    const box = new THREE.Box3().setFromObject(mapModel);
-                    const size = new THREE.Vector3();
-                    box.getSize(size);
-                    
-                    const scaleX = 200 / size.x;
-                    const scaleZ = 150 / size.z;
-                    const uniformScale = Math.min(scaleX, scaleZ);
-                    
-                    mapModel.scale.set(uniformScale, uniformScale, uniformScale);
-                    mapModel.rotation.y = Math.PI / 2;
-                    mapModel.position.y = 0;
-                    
-                    mapModel.traverse((child) => {
-                        if (child.isMesh) {
-                            if (child.name === 'Mesh_0' && child.material) {
-                                child.material.color.set(0x4db8ff);
-                                child.material.needsUpdate = true;
-                            }
+            gltfLoader.load(`${CDN_BASE_URL}/new_map.glb`, (gltf) => {
+                const mapModel = gltf.scene;
+                
+                const box = new THREE.Box3().setFromObject(mapModel);
+                const size = new THREE.Vector3();
+                box.getSize(size);
+                
+                const scaleX = 200 / size.x;
+                const scaleZ = 150 / size.z;
+                const uniformScale = Math.min(scaleX, scaleZ);
+                
+                mapModel.scale.set(uniformScale, uniformScale, uniformScale);
+                mapModel.rotation.y = Math.PI / 2;
+                mapModel.position.y = 0;
+                
+                mapModel.traverse((child) => {
+                    if (child.isMesh) {
+                        if (child.name === 'Mesh_0' && child.material) {
+                            child.material.color.set(0x4db8ff);
+                            child.material.needsUpdate = true;
                         }
-                    });
-                    
-                    preloadedAssets.scene.add(mapModel);
-                    
-                    const scaledBox = new THREE.Box3().setFromObject(mapModel);
-                    const scaledSize = new THREE.Vector3();
-                    scaledBox.getSize(scaledSize);
-                    
-                    const groundSurfaceY = scaledBox.max.y;
-                    
-                    const invisibleGroundGeometry = new THREE.PlaneGeometry(500, 500);
-                    const invisibleGroundMaterial = new THREE.MeshBasicMaterial({ 
-                        color: 0x000000, 
-                        transparent: true, 
-                        opacity: 0,
-                        side: THREE.DoubleSide
-                    });
-                    const invisibleGround = new THREE.Mesh(invisibleGroundGeometry, invisibleGroundMaterial);
-                    invisibleGround.rotation.x = -Math.PI / 2;
-                    invisibleGround.position.y = groundSurfaceY;
-                    preloadedAssets.scene.add(invisibleGround);
-                    
-                    preloadedAssets.terrain = {
-                        ground: mapModel,
-                        invisibleGround: invisibleGround,
-                        groundSurfaceY: groundSurfaceY
-                    };
-                    
-                    console.log('✅ 3D map model loaded and added to scene');
-                    resolve();
-                }, 
-                (progress) => {
-                    if (progress.lengthComputable) {
-                        const percent = (progress.loaded / progress.total) * 100;
-                        console.log(`📥 Loading map: ${percent.toFixed(1)}%`);
                     }
-                }, 
-                (error) => {
-                    console.error(`❌ Error loading GLB map from ${mapUrl}:`, error);
-                    reject(new Error(`Failed to load map: ${error.message || 'Unknown error'}`));
-                }
-            );
+                });
+                
+                preloadedAssets.scene.add(mapModel);
+                
+                const scaledBox = new THREE.Box3().setFromObject(mapModel);
+                const scaledSize = new THREE.Vector3();
+                scaledBox.getSize(scaledSize);
+                
+                const groundSurfaceY = scaledBox.max.y;
+                
+                const invisibleGroundGeometry = new THREE.PlaneGeometry(500, 500);
+                const invisibleGroundMaterial = new THREE.MeshBasicMaterial({ 
+                    color: 0x000000, 
+                    transparent: true, 
+                    opacity: 0,
+                    side: THREE.DoubleSide
+                });
+                const invisibleGround = new THREE.Mesh(invisibleGroundGeometry, invisibleGroundMaterial);
+                invisibleGround.rotation.x = -Math.PI / 2;
+                invisibleGround.position.y = groundSurfaceY;
+                preloadedAssets.scene.add(invisibleGround);
+                
+                preloadedAssets.terrain = {
+                    ground: mapModel,
+                    invisibleGround: invisibleGround,
+                    groundSurfaceY: groundSurfaceY
+                };
+                
+                console.log('3D map model loaded and added to scene');
+                resolve();
+            }, undefined, (error) => {
+                console.error('Error loading GLB map during preload:', error);
+                reject(error);
+            });
         });
         
         updateInitialLoadingProgress(100, 'Ready to play!', 'All assets loaded successfully');
@@ -228,10 +211,13 @@ class MundoKnifeGame3D {
         this.opponentSnapshots = [];
         this.snapshotLimit = 32; // Increased from 10 for better buffering
         
-        this.baseInterpolationDelay = 30; // Base delay in ms (reduced from 100ms)
-        this.interpolationDelay = 30;
-        this.minInterpolationDelay = 20;
-        this.maxInterpolationDelay = 70;
+        // Per-player snapshot buffers for 3v3 mode (keyed by playerId)
+        this.remotePlayerSnapshots = new Map();
+        
+        this.baseInterpolationDelay = 80; // Base delay in ms (increased for smoother interpolation)
+        this.interpolationDelay = 80;
+        this.minInterpolationDelay = 60;
+        this.maxInterpolationDelay = 150;
         
         this.networkStats = {
             lastUpdateTimes: [],
@@ -293,6 +279,7 @@ class MundoKnifeGame3D {
             this.camera = preloadedAssets.camera;
             
             const canvas = document.getElementById('gameCanvas');
+            this.container = canvas;
             if (canvas && !canvas.firstChild) {
                 canvas.appendChild(this.renderer.domElement);
             }
@@ -522,8 +509,8 @@ class MundoKnifeGame3D {
         
         const animationFiles = {
             idle: `${CDN_BASE_URL}/Animation_Idle_frame_rate_60.fbx`,
-            run: `${CDN_BASE_URL}/Animation_RunFast_frame_rate_60.fbx`,
-            death: `${CDN_BASE_URL}/Animation_Dead_frame_rate_60.fbx`
+            run: `${CDN_BASE_URL}/Animation_Run_60.fbx`,
+            death: `${CDN_BASE_URL}/Animation_Death_60.fbx`
         };
         
         this.characterModel = null;
@@ -562,20 +549,29 @@ class MundoKnifeGame3D {
 
     setupThreeJS() {
         this.container = document.getElementById('gameCanvas');
+        if (!this.container) {
+            console.error('[ERROR] gameCanvas element not found in DOM');
+            return;
+        }
         
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(0x000000);
         
         const rect = this.container.getBoundingClientRect();
+        const width = rect.width || window.innerWidth;
+        const height = rect.height || window.innerHeight;
+        
+        console.log('[SETUP-THREE] Container size:', width, 'x', height);
+        
         this.camera = new THREE.PerspectiveCamera(
             75, 
-            rect.width / rect.height, 
+            width / height, 
             0.1, 
             10000
         );
         
         this.renderer = new THREE.WebGLRenderer({ antialias: true });
-        this.renderer.setSize(rect.width, rect.height, false);
+        this.renderer.setSize(width, height, false);
         this.renderer.shadowMap.enabled = this.shadowConfig.enabled;
         if (this.shadowConfig.enabled) {
             this.renderer.shadowMap.type = this.shadowConfig.type;
@@ -584,8 +580,12 @@ class MundoKnifeGame3D {
         this.canvas = this.renderer.domElement;
         this.container.appendChild(this.renderer.domElement);
         
+        this.onWindowResize();
+        
         this.setupLighting();
         this.setupTerrain();
+        
+        console.log('[SETUP-THREE] Scene children:', this.scene.children.length, 'Lights:', this.scene.children.filter(x => x.isLight).length);
     }
 
     setupLighting() {
@@ -866,7 +866,7 @@ class MundoKnifeGame3D {
                 targetZ: null,
                 moveSpeed: 0.39,
                 lastKnifeTime: 0,
-                knifeCooldown: 5000,
+                knifeCooldown: 4000,
                 mesh: null,
                 canAttack: index === 0,
                 isThrowingKnife: false,
@@ -905,7 +905,7 @@ class MundoKnifeGame3D {
                 targetZ: null,
                 moveSpeed: 0.39,
                 lastKnifeTime: 0,
-                knifeCooldown: 5000,
+                knifeCooldown: 4000,
                 mesh: null,
                 aiStartDelay: 0,
                 aiCanAttack: false,
@@ -1105,31 +1105,99 @@ class MundoKnifeGame3D {
 
     updatePlayerAnimation(player, dt) {
         let desiredState = 'idle';
+        const dtSafe = dt > 0 ? dt : 1 / 60;
+        const isLocalPlayer = player === this.playerSelf;
+        
+        let isActuallyMoving = false;
+        let minStateTime = 0.2;
+        
+        if (isLocalPlayer) {
+            isActuallyMoving = !!player.isMoving;
+            minStateTime = 0.15;
+        } else {
+            const prevX = player._prevAnimX ?? player.x;
+            const prevZ = player._prevAnimZ ?? player.z;
+            const dx = player.x - prevX;
+            const dz = player.z - prevZ;
+            const dist = Math.sqrt(dx * dx + dz * dz);
+            player._prevAnimX = player.x;
+            player._prevAnimZ = player.z;
+            
+            let rawSpeed = dist / dtSafe;
+            
+            const noiseSpeed = 2.0;
+            if (rawSpeed < noiseSpeed) {
+                rawSpeed = 0;
+            }
+            
+            const prevFiltered = player._animSpeedFiltered ?? 0;
+            const alpha = 0.4;
+            const filteredSpeed = prevFiltered * (1 - alpha) + rawSpeed * alpha;
+            player._animSpeedFiltered = filteredSpeed;
+            
+            const enterRunSpeed = 4;
+            const exitRunSpeed = 1.5;
+            const lowSpeedDuration = 0.05;
+            
+            if (filteredSpeed < exitRunSpeed) {
+                player._lowSpeedTime = (player._lowSpeedTime || 0) + dtSafe;
+            } else {
+                player._lowSpeedTime = 0;
+            }
+            
+            let prevMoving = player._isAnimMoving ?? false;
+            if (!prevMoving && filteredSpeed > enterRunSpeed) {
+                prevMoving = true;
+            } else if (prevMoving && (player._lowSpeedTime || 0) > lowSpeedDuration) {
+                prevMoving = false;
+            }
+            player._isAnimMoving = prevMoving;
+            isActuallyMoving = prevMoving;
+            minStateTime = 0.05;
+        }
         
         if (player.health <= 0) {
             desiredState = 'death';
-        } else if (player.isMoving) {
+        } else if (isActuallyMoving) {
             desiredState = 'run';
         }
         
-        if (player.animationState !== desiredState) {
+        player._animStateTime = (player._animStateTime || 0) + dtSafe;
+        
+        if (player.animationState !== desiredState && player._animStateTime > minStateTime) {
+            player._animStateTime = 0;
             const oldAnimation = player.currentAnimation;
             const newAnimation = player.animations[desiredState];
             
-            if (oldAnimation) {
-                oldAnimation.fadeOut(0.2);
-            }
-            
-            if (newAnimation) {
-                newAnimation.reset().fadeIn(0.2);
-                
-                if (desiredState === 'death') {
-                    newAnimation.setLoop(THREE.LoopOnce);
-                    newAnimation.clampWhenFinished = true;
+            if (isLocalPlayer) {
+                if (oldAnimation) {
+                    oldAnimation.stop();
+                    oldAnimation.enabled = false;
                 }
-                
-                newAnimation.play();
-                player.currentAnimation = newAnimation;
+                if (newAnimation) {
+                    newAnimation.reset();
+                    newAnimation.enabled = true;
+                    if (desiredState === 'death') {
+                        newAnimation.setLoop(THREE.LoopOnce);
+                        newAnimation.clampWhenFinished = true;
+                    }
+                    newAnimation.play();
+                    player.currentAnimation = newAnimation;
+                }
+            } else {
+                const fadeTime = 0.2;
+                if (oldAnimation) {
+                    oldAnimation.fadeOut(fadeTime);
+                }
+                if (newAnimation) {
+                    newAnimation.reset().fadeIn(fadeTime);
+                    if (desiredState === 'death') {
+                        newAnimation.setLoop(THREE.LoopOnce);
+                        newAnimation.clampWhenFinished = true;
+                    }
+                    newAnimation.play();
+                    player.currentAnimation = newAnimation;
+                }
             }
             
             player.animationState = desiredState;
@@ -1165,18 +1233,37 @@ class MundoKnifeGame3D {
         this.cameraLocked = true;
     }
 
-    updateCamera() {
+    updateCamera(dt) {
         if (this.playerSelf) {
             const groundY = this.groundSurfaceY || 0;
             const characterCenterY = groundY + (this.characterSize / 2);
             
+            const desiredTargetX = this.playerSelf.x;
+            const desiredTargetY = characterCenterY;
+            const desiredTargetZ = this.playerSelf.z;
+            
+            if (!this.cameraTarget) {
+                this.cameraTarget = new THREE.Vector3(desiredTargetX, desiredTargetY, desiredTargetZ);
+            }
+            if (!this.cameraOffset) {
+                this.cameraOffset = new THREE.Vector3(0, 90, 75);
+            }
+            
+            const isMoving = this.playerSelf.isMoving;
+            const speedPerSecond = isMoving ? 12 : 5;
+            const lerpFactor = Math.min(1, speedPerSecond * dt);
+            
+            this.cameraTarget.x += (desiredTargetX - this.cameraTarget.x) * lerpFactor;
+            this.cameraTarget.y += (desiredTargetY - this.cameraTarget.y) * lerpFactor;
+            this.cameraTarget.z += (desiredTargetZ - this.cameraTarget.z) * lerpFactor;
+            
             this.camera.position.set(
-                this.playerSelf.x,
-                characterCenterY + 90,
-                this.playerSelf.z + 75
+                this.cameraTarget.x + this.cameraOffset.x,
+                this.cameraTarget.y + this.cameraOffset.y,
+                this.cameraTarget.z + this.cameraOffset.z
             );
             
-            this.camera.lookAt(this.playerSelf.x, characterCenterY, this.playerSelf.z);
+            this.camera.lookAt(this.cameraTarget.x, this.cameraTarget.y, this.cameraTarget.z);
         }
     }
 
@@ -1271,32 +1358,15 @@ class MundoKnifeGame3D {
                 this.lastMoveInputTime = Date.now();
                 const actionId = `${Date.now()}-${Math.random()}`;
                 
-                // ⚡ INSTANT CLIENT-SIDE PREDICTION - Move immediately!
-                // Calculate distance to determine if we should move instantly or gradually
-                const dx = point.x - this.playerSelf.x;
-                const dz = point.z - this.playerSelf.z;
-                const distance = Math.sqrt(dx * dx + dz * dz);
-                
-                // For short distances, move instantly (like LoL)
-                if (distance < 50) {
-                    this.playerSelf.x = point.x;
-                    this.playerSelf.z = point.z;
-                    if (this.playerSelf.mesh) {
-                        this.playerSelf.mesh.position.x = point.x;
-                        this.playerSelf.mesh.position.z = point.z;
-                    }
-                }
-                
-                // Always set target for smooth movement
-                this.playerSelf.targetX = point.x;
-                this.playerSelf.targetZ = point.z;
-                this.playerSelf.isMoving = distance > 0.5;
-                
                 if (this.NETCODE.prediction && this.inputBuffer) {
                     const seq = this.inputBuffer.addInput({
                         targetX: point.x,
                         targetZ: point.z
                     });
+                    
+                    this.playerSelf.targetX = point.x;
+                    this.playerSelf.targetZ = point.z;
+                    this.playerSelf.isMoving = true;
                     
                     const clientTime = this.timeSync ? this.timeSync.getServerTime() : Date.now();
                     
@@ -1309,6 +1379,10 @@ class MundoKnifeGame3D {
                         clientTime: clientTime
                     });
                 } else {
+                    this.playerSelf.targetX = point.x;
+                    this.playerSelf.targetZ = point.z;
+                    this.playerSelf.isMoving = true;
+                    
                     socket.emit('playerMove', {
                         roomCode: roomCode,
                         targetX: point.x,
@@ -1316,8 +1390,6 @@ class MundoKnifeGame3D {
                         actionId: actionId
                     });
                 }
-                
-                console.log(`⚡ [INSTANT-MOVE] Player moved instantly to (${point.x.toFixed(1)}, ${point.z.toFixed(1)})`);
             } else {
                 this.playerSelf.targetX = point.x;
                 this.playerSelf.targetZ = point.z;
@@ -1332,6 +1404,10 @@ class MundoKnifeGame3D {
         }
         
         const now = Date.now();
+        
+        if (this.gameState.countdownActive) {
+            return;
+        }
         
         if (!this.playerSelf.canAttack) {
             return;
@@ -1356,19 +1432,32 @@ class MundoKnifeGame3D {
             
             if (this.isMultiplayer && socket) {
                 const predictedKnife = this.createKnife3DTowards(this.playerSelf, targetX, targetZ, this.raycaster.ray.direction, knifeAudio);
-                if (predictedKnife) {
-                    predictedKnife.actionId = actionId;
-                    predictedKnife.isPredicted = true;
-                }
+                    if (predictedKnife) {
+                        predictedKnife.actionId = actionId;
+                        predictedKnife.isPredicted = true;
+                        console.log('[KNIFE][PREDICTED]', { actionId, idx: this.knives.indexOf(predictedKnife), myTeam: this.myTeam, typeMyTeam: typeof this.myTeam });
+                    }
                 
                 // Include clientTimestamp for lag compensation
                 const clientTimestamp = this.timeSync ? this.timeSync.getServerTime() : Date.now();
+                
+                // LAG DEBUG: Generate unique debugId and log client send time
+                const debugId = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+                const clientSendTime = Date.now();
+                console.log(`[LAG][KNIFE][CLIENT-SEND] id=${debugId} t=${clientSendTime} actionId=${actionId}`);
+                
+                // Store debugId for tracking health update response
+                if (!this.pendingKnifeDebug) this.pendingKnifeDebug = new Map();
+                this.pendingKnifeDebug.set(actionId, { debugId, clientSendTime });
+                
                 socket.emit('knifeThrow', {
                     roomCode: roomCode,
                     targetX: targetX,
                     targetZ: targetZ,
                     actionId: actionId,
-                    clientTimestamp: clientTimestamp
+                    clientTimestamp: clientTimestamp,
+                    debugId: debugId,
+                    clientSendTime: clientSendTime
                 });
             } else {
                 this.createKnife3DTowards(this.playerSelf, targetX, targetZ, this.raycaster.ray.direction, knifeAudio);
@@ -1547,6 +1636,8 @@ class MundoKnifeGame3D {
         
         this.knives.push(knifeData);
         this.scene.add(knifeGroup);
+        
+        return knifeData;
     }
 
     createKnife3D(fromPlayer, toPlayer) {
@@ -1664,7 +1755,6 @@ class MundoKnifeGame3D {
         }
         
         if (this.isMultiplayer && player === this.playerOpponent) {
-            this.interpolateOpponentPosition();
             return;
         }
         
@@ -1673,16 +1763,25 @@ class MundoKnifeGame3D {
             const dz = player.targetZ - player.z;
             const distance = Math.sqrt(dx * dx + dz * dz);
             
-            if (distance > 1) {
-                const newX = player.x + (dx / distance) * player.moveSpeed;
-                const newZ = player.z + (dz / distance) * player.moveSpeed;
+            if (distance > 0.001) {
+                const step = Math.min(distance, player.moveSpeed);
+                const stepX = (dx / distance) * step;
+                const stepZ = (dz / distance) * step;
                 
-                player.x = newX;
-                player.z = newZ;
+                player.x += stepX;
+                player.z += stepZ;
                 player.facing = dx > 0 ? 1 : -1;
                 
                 const angle = Math.atan2(dz, dx);
                 player.rotation = -angle + Math.PI / 2;
+                
+                if (distance <= player.moveSpeed) {
+                    player.x = player.targetX;
+                    player.z = player.targetZ;
+                    player.isMoving = false;
+                    player.targetX = null;
+                    player.targetZ = null;
+                }
             } else {
                 player.isMoving = false;
                 player.targetX = null;
@@ -1726,10 +1825,17 @@ class MundoKnifeGame3D {
         
         this.interpolationDelay = adaptiveDelay;
         this.networkStats.lastAdaptiveUpdate = now;
+        
+        // LAG DEBUG: Log interpolation delay and related stats
+        console.log(`[LAG][INTERP] delay=${this.interpolationDelay.toFixed(1)}ms jitter=${jitter.toFixed(1)}ms avgInterval=${avgInterval.toFixed(1)}ms serverTimeOffset=${this.serverTimeOffset}ms`);
     }
 
     interpolateOpponentPosition() {
         if (this.opponentSnapshots.length < 2) return;
+        
+        if (!this.interpDebug) {
+            this.interpDebug = { lastMode: null, lastX: null, lastZ: null, modeChangeCount: 0 };
+        }
         
         const serverNow = Date.now() - this.serverTimeOffset;
         const renderTime = serverNow - this.interpolationDelay;
@@ -1746,11 +1852,17 @@ class MundoKnifeGame3D {
             }
         }
         
+        let finalX, finalZ;
+        let currentMode;
+        
         if (!snapshot0 || !snapshot1) {
+            currentMode = 'EXTRAP';
             const latest = this.opponentSnapshots[this.opponentSnapshots.length - 1];
+            const behind = serverNow - latest.timestamp;
             
-            if (this.debugSync) {
-                console.log(`[SYNC-DEBUG] Extrapolating - renderTime:${renderTime}, latestTimestamp:${latest.timestamp}, behind:${serverNow - latest.timestamp}ms`);
+            if (this.interpDebug.lastMode !== 'EXTRAP') {
+                this.interpDebug.modeChangeCount++;
+                console.log(`[INTERP-MODE] EXTRAP behind=${behind.toFixed(0)}ms delay=${this.interpolationDelay.toFixed(0)}ms snapshots=${this.opponentSnapshots.length}`);
             }
             
             if (this.opponentSnapshots.length >= 2) {
@@ -1761,58 +1873,177 @@ class MundoKnifeGame3D {
                     const vx = (latest.x - prev.x) / dt;
                     const vz = (latest.z - prev.z) / dt;
                     
-                    const extrapolationTime = Math.min(100, serverNow - latest.timestamp);
+                    const extrapolationTime = Math.min(100, behind);
                     
-                    this.playerOpponent.x = latest.x + vx * extrapolationTime;
-                    this.playerOpponent.z = latest.z + vz * extrapolationTime;
+                    finalX = latest.x + vx * extrapolationTime;
+                    finalZ = latest.z + vz * extrapolationTime;
+                    
+                    if (Math.abs(vx) > 0.0001 || Math.abs(vz) > 0.0001) {
+                        const angle = Math.atan2(vz, vx);
+                        this.playerOpponent.rotation = -angle + Math.PI / 2;
+                        this.playerOpponent.facing = vx > 0 ? 1 : -1;
+                    }
                 } else {
-                    this.playerOpponent.x = latest.x;
-                    this.playerOpponent.z = latest.z;
+                    finalX = latest.x;
+                    finalZ = latest.z;
                 }
             } else {
-                this.playerOpponent.x = latest.x;
-                this.playerOpponent.z = latest.z;
+                finalX = latest.x;
+                finalZ = latest.z;
             }
             
             this.playerOpponent.targetX = latest.targetX;
             this.playerOpponent.targetZ = latest.targetZ;
             this.playerOpponent.isMoving = latest.isMoving;
+        } else {
+            currentMode = 'INTERP';
             
-            if (this.playerOpponent.mesh) {
-                this.playerOpponent.mesh.position.x = this.playerOpponent.x;
-                this.playerOpponent.mesh.position.z = this.playerOpponent.z;
-                
-                if (this.debugSync) {
-                    console.log(`[SYNC-DEBUG] Applied extrapolated position to mesh - x:${this.playerOpponent.x.toFixed(2)}, z:${this.playerOpponent.z.toFixed(2)}`);
-                }
+            if (this.interpDebug.lastMode !== 'INTERP') {
+                this.interpDebug.modeChangeCount++;
+                console.log(`[INTERP-MODE] INTERP delay=${this.interpolationDelay.toFixed(0)}ms snapshots=${this.opponentSnapshots.length}`);
             }
-            return;
+            
+            const timeDiff = snapshot1.timestamp - snapshot0.timestamp;
+            const t = timeDiff > 0 ? (renderTime - snapshot0.timestamp) / timeDiff : 0;
+            const clampedT = Math.max(0, Math.min(1, t));
+            
+            finalX = snapshot0.x + (snapshot1.x - snapshot0.x) * clampedT;
+            finalZ = snapshot0.z + (snapshot1.z - snapshot0.z) * clampedT;
+            
+            const dirX = snapshot1.x - snapshot0.x;
+            const dirZ = snapshot1.z - snapshot0.z;
+            if (Math.abs(dirX) > 0.001 || Math.abs(dirZ) > 0.001) {
+                const angle = Math.atan2(dirZ, dirX);
+                this.playerOpponent.rotation = -angle + Math.PI / 2;
+                this.playerOpponent.facing = dirX > 0 ? 1 : -1;
+            }
+            
+            this.playerOpponent.targetX = snapshot1.targetX;
+            this.playerOpponent.targetZ = snapshot1.targetZ;
+            this.playerOpponent.isMoving = snapshot1.isMoving;
         }
         
-        const timeDiff = snapshot1.timestamp - snapshot0.timestamp;
-        const t = timeDiff > 0 ? (renderTime - snapshot0.timestamp) / timeDiff : 0;
-        const clampedT = Math.max(0, Math.min(1, t));
-        
-        const interpolatedX = snapshot0.x + (snapshot1.x - snapshot0.x) * clampedT;
-        const interpolatedZ = snapshot0.z + (snapshot1.z - snapshot0.z) * clampedT;
-        
-        if (this.debugSync) {
-            console.log(`[SYNC-DEBUG] Interpolating - renderTime:${renderTime}, s0:${snapshot0.timestamp}, s1:${snapshot1.timestamp}, t:${clampedT.toFixed(3)}, x:${interpolatedX.toFixed(2)}, z:${interpolatedZ.toFixed(2)}`);
+        if (this.interpDebug.lastX !== null) {
+            const dx = finalX - this.interpDebug.lastX;
+            const dz = finalZ - this.interpDebug.lastZ;
+            const jumpDist = Math.sqrt(dx * dx + dz * dz);
+            if (jumpDist > 3) {
+                console.log(`[INTERP-JUMP] mode=${currentMode} dist=${jumpDist.toFixed(2)} x=${finalX.toFixed(2)} z=${finalZ.toFixed(2)}`);
+            }
         }
+        this.interpDebug.lastX = finalX;
+        this.interpDebug.lastZ = finalZ;
+        this.interpDebug.lastMode = currentMode;
         
-        this.playerOpponent.x = interpolatedX;
-        this.playerOpponent.z = interpolatedZ;
-        this.playerOpponent.targetX = snapshot1.targetX;
-        this.playerOpponent.targetZ = snapshot1.targetZ;
-        this.playerOpponent.isMoving = snapshot1.isMoving;
+        this.playerOpponent.x = finalX;
+        this.playerOpponent.z = finalZ;
         
         if (this.playerOpponent.mesh) {
-            this.playerOpponent.mesh.position.x = interpolatedX;
-            this.playerOpponent.mesh.position.z = interpolatedZ;
-            
-            if (this.debugSync) {
-                console.log(`[SYNC-DEBUG] Applied interpolated position to mesh - x:${interpolatedX.toFixed(2)}, z:${interpolatedZ.toFixed(2)}`);
+            this.playerOpponent.mesh.position.x = finalX;
+            this.playerOpponent.mesh.position.z = finalZ;
+            this.playerOpponent.mesh.rotation.y = this.playerOpponent.rotation;
+        }
+    }
+
+    // Interpolate a single remote player using their snapshot buffer
+    interpolateRemotePlayer(player, snapshots, serverNow, renderTime) {
+        if (!snapshots || snapshots.length < 2) return;
+        
+        let snapshot0 = null;
+        let snapshot1 = null;
+        
+        for (let i = 0; i < snapshots.length - 1; i++) {
+            if (snapshots[i].timestamp <= renderTime && 
+                snapshots[i + 1].timestamp >= renderTime) {
+                snapshot0 = snapshots[i];
+                snapshot1 = snapshots[i + 1];
+                break;
             }
+        }
+        
+        let finalX, finalZ;
+        
+        if (!snapshot0 || !snapshot1) {
+            // Extrapolation mode
+            const latest = snapshots[snapshots.length - 1];
+            const behind = serverNow - latest.timestamp;
+            
+            if (snapshots.length >= 2) {
+                const prev = snapshots[snapshots.length - 2];
+                const dt = latest.timestamp - prev.timestamp;
+                
+                if (dt > 0 && dt < 200) {
+                    const vx = (latest.x - prev.x) / dt;
+                    const vz = (latest.z - prev.z) / dt;
+                    
+                    const extrapolationTime = Math.min(100, behind);
+                    
+                    finalX = latest.x + vx * extrapolationTime;
+                    finalZ = latest.z + vz * extrapolationTime;
+                    
+                    if (Math.abs(vx) > 0.0001 || Math.abs(vz) > 0.0001) {
+                        const angle = Math.atan2(vz, vx);
+                        player.rotation = -angle + Math.PI / 2;
+                        player.facing = vx > 0 ? 1 : -1;
+                    }
+                } else {
+                    finalX = latest.x;
+                    finalZ = latest.z;
+                }
+            } else {
+                finalX = latest.x;
+                finalZ = latest.z;
+            }
+            
+            player.targetX = latest.targetX;
+            player.targetZ = latest.targetZ;
+            player.isMoving = latest.isMoving;
+        } else {
+            // Interpolation mode
+            const timeDiff = snapshot1.timestamp - snapshot0.timestamp;
+            const t = timeDiff > 0 ? (renderTime - snapshot0.timestamp) / timeDiff : 0;
+            const clampedT = Math.max(0, Math.min(1, t));
+            
+            finalX = snapshot0.x + (snapshot1.x - snapshot0.x) * clampedT;
+            finalZ = snapshot0.z + (snapshot1.z - snapshot0.z) * clampedT;
+            
+            const dirX = snapshot1.x - snapshot0.x;
+            const dirZ = snapshot1.z - snapshot0.z;
+            if (Math.abs(dirX) > 0.001 || Math.abs(dirZ) > 0.001) {
+                const angle = Math.atan2(dirZ, dirX);
+                player.rotation = -angle + Math.PI / 2;
+                player.facing = dirX > 0 ? 1 : -1;
+            }
+            
+            player.targetX = snapshot1.targetX;
+            player.targetZ = snapshot1.targetZ;
+            player.isMoving = snapshot1.isMoving;
+        }
+        
+        player.x = finalX;
+        player.z = finalZ;
+        
+        if (player.mesh) {
+            player.mesh.position.x = finalX;
+            player.mesh.position.z = finalZ;
+            player.mesh.rotation.y = player.rotation;
+        }
+    }
+
+    // Interpolate all remote players for 3v3 mode (teammates + opponents = 5 players)
+    interpolateAllRemotePlayers() {
+        const serverNow = Date.now() - this.serverTimeOffset;
+        const renderTime = serverNow - this.interpolationDelay;
+        
+        for (const [playerId, player] of this.playersById.entries()) {
+            // Skip self - only interpolate remote players
+            if (player === this.playerSelf) continue;
+            
+            // Interpolate ALL remote players (both teammates and opponents)
+            const snapshots = this.remotePlayerSnapshots.get(playerId);
+            if (!snapshots || snapshots.length < 2) continue;
+            
+            this.interpolateRemotePlayer(player, snapshots, serverNow, renderTime);
         }
     }
 
@@ -1820,10 +2051,36 @@ class MundoKnifeGame3D {
         for (let i = this.knives.length - 1; i >= 0; i--) {
             const knife = this.knives[i];
             
+            if (knife.hasHit) continue;
+            
             knife.mesh.position.x += knife.vx;
             knife.mesh.position.y += (knife.vy || 0);
             knife.mesh.position.z += knife.vz;
             knife.mesh.rotation.z += 0.3;
+            
+            const isLocalPlayerKnife = this.isMultiplayer && knife.thrower && knife.thrower.team === this.myTeam;
+            const isOpponentKnife = this.isMultiplayer && knife.thrower && knife.thrower.team === this.opponentTeam;
+            
+            if (isOpponentKnife) {
+                console.log('[KNIFE][CLASSIFY]', {
+                    role: this.isHostPlayer ? 'HOST' : 'JOINER',
+                    myTeam: this.myTeam,
+                    opponentTeam: this.opponentTeam,
+                    throwerTeam: knife.thrower.team,
+                    isLocalPlayerKnife,
+                    isOpponentKnife,
+                    knifeId: knife.knifeId
+                });
+            }
+            
+            if (isLocalPlayerKnife || isOpponentKnife) {
+                this.checkKnifeCollisions(knife, i);
+                if (knife.hasHit) continue;
+            }
+            
+            if (this.isMultiplayer && knife.serverConfirmed) {
+                continue;
+            }
             
             if (Math.abs(knife.mesh.position.x) > 120 ||
                 Math.abs(knife.mesh.position.z) > 90 ||
@@ -1881,26 +2138,31 @@ class MundoKnifeGame3D {
     }
 
     checkKnifeCollisions(knife, knifeIndex) {
-        // ⚡ Enable client-side prediction for multiplayer too!
-        // This provides instant feedback while server validates
-        const isPredictedKnife = knife.isPredicted && this.isMultiplayer;
+        const isLocalPlayerKnife = this.isMultiplayer && knife.thrower && knife.thrower.team === this.myTeam;
+        const isOpponentKnife = this.isMultiplayer && knife.thrower && knife.thrower.team === this.opponentTeam;
         
-        // Skip collision check for predicted knives that are too old (waiting for server)
-        if (isPredictedKnife && knife.spawnTime) {
-            const age = Date.now() - knife.spawnTime;
-            // If predicted knife is older than 2 seconds and not confirmed, skip local collision
-            if (age > 2000 && !knife.serverConfirmed) {
-                return;
-            }
+        if (this.isMultiplayer && !isLocalPlayerKnife && !isOpponentKnife) {
+            return;
         }
         
         const knifeWorldPos = new THREE.Vector3();
         knife.mesh.getWorldPosition(knifeWorldPos);
         
         const thrower = knife.thrower;
-        const targetTeam = thrower.team === 1 ? this.team2 : this.team1;
         
-        targetTeam.forEach(target => {
+        let targets = [];
+        if (this.isMultiplayer) {
+            if (isLocalPlayerKnife) {
+                targets = [this.playerOpponent];
+            } else if (isOpponentKnife) {
+                targets = [this.playerSelf];
+            }
+        } else {
+            const targetTeam = thrower.team === 1 ? this.team2 : this.team1;
+            targets = targetTeam;
+        }
+        
+        targets.forEach(target => {
             if (target.health <= 0) return;
             
             const targetWorldPos = new THREE.Vector3();
@@ -1917,49 +2179,43 @@ class MundoKnifeGame3D {
             
             const threshold = this.characterSize * 1.05;
             
+            if (isOpponentKnife && target === this.playerSelf) {
+                console.log('[KNIFE][PREDICT-DEBUG]', {
+                    role: this.isHostPlayer ? 'HOST' : 'JOINER',
+                    myTeam: this.myTeam,
+                    opponentTeam: this.opponentTeam,
+                    throwerTeam: thrower.team,
+                    targetTeam: target.team,
+                    distance: distance.toFixed(2),
+                    threshold: threshold.toFixed(2),
+                    willHit: distance < threshold,
+                    knifePos: { x: knifeWorldPos.x.toFixed(2), z: knifeWorldPos.z.toFixed(2) },
+                    targetPos: { x: targetWorldPos.x.toFixed(2), z: targetWorldPos.z.toFixed(2) }
+                });
+            }
+            
             if (distance < threshold) {
-                const isPredictedHit = isPredictedKnife && this.isMultiplayer;
+                console.log(`💥 [HIT-LOCAL] Knife from Team${thrower.team} hit ${isOpponentKnife ? 'self' : 'opponent'}! (multiplayer: ${this.isMultiplayer})`);
                 
-                if (isPredictedHit) {
-                    // ⚡ PREDICTED HIT - Show instant feedback, but mark as predicted
-                    console.log(`💥 [HIT-PREDICTED] Predicted knife hit! Waiting for server confirmation...`);
+                this.createBloodEffect(targetWorldPos.x, targetWorldPos.y, targetWorldPos.z);
+                
+                const hitSound = document.getElementById('hitSound');
+                if (hitSound) {
+                    hitSound.currentTime = 0;
+                    hitSound.play().catch(e => {});
+                }
+                
+                knife.hasHit = true;
+                
+                if (this.isMultiplayer) {
+                    knife.mesh.visible = false;
+                    knife.predictedHit = true;
                     
-                    // Mark knife as hit (will be confirmed/denied by server)
-                    knife.predictedHit = {
-                        target: target,
-                        timestamp: Date.now()
-                    };
-                    
-                    // Show visual feedback immediately
-                    this.createBloodEffect(targetWorldPos.x, targetWorldPos.y, targetWorldPos.z);
-                    
-                    const hitSound = document.getElementById('hitSound');
-                    if (hitSound) {
-                        hitSound.currentTime = 0;
-                        hitSound.play().catch(e => {});
+                    if (isLocalPlayerKnife && target === this.playerOpponent && target.health > 0) {
+                        target.health = Math.max(0, target.health - 1);
+                        this.updateHealthDisplay();
                     }
-                    
-                    // Apply predicted damage (will be corrected by server)
-                    const predictedHealth = target.health - 1;
-                    target.predictedHealth = predictedHealth;
-                    
-                    // ⚡ Show predicted health immediately for instant feedback
-                    this.updateHealthDisplay();
-                    
-                    // Don't dispose knife yet - wait for server confirmation
-                    // The knife will be removed when server confirms or denies
                 } else {
-                    // Single player or server-confirmed hit
-                    console.log(`💥 [HIT-LOCAL] Knife from Team${thrower.team} hit Team${target.team} Player${target.playerIndex}!`);
-                    
-                    this.createBloodEffect(targetWorldPos.x, targetWorldPos.y, targetWorldPos.z);
-                    
-                    const hitSound = document.getElementById('hitSound');
-                    if (hitSound) {
-                        hitSound.currentTime = 0;
-                        hitSound.play().catch(e => {});
-                    }
-                    
                     this.disposeKnife(knife);
                     this.knives.splice(knifeIndex, 1);
                     
@@ -2086,25 +2342,21 @@ class MundoKnifeGame3D {
         const player2Hearts = document.getElementById('player2Health')?.children;
         
         if (player1Hearts && this.team1[0]) {
-            // ⚡ Show predicted health if available, otherwise use actual health
-            const displayHealth = this.team1[0].predictedHealth !== undefined 
-                ? this.team1[0].predictedHealth 
-                : this.team1[0].health;
-            
             for (let i = 0; i < 5; i++) {
-                player1Hearts[i].classList.toggle('empty', i >= displayHealth);
+                player1Hearts[i].classList.toggle('empty', i >= this.team1[0].health);
             }
         }
         
         if (player2Hearts && this.team2[0]) {
-            // ⚡ Show predicted health if available, otherwise use actual health
-            const displayHealth = this.team2[0].predictedHealth !== undefined 
-                ? this.team2[0].predictedHealth 
-                : this.team2[0].health;
             for (let i = 0; i < 5; i++) {
                 player2Hearts[i].classList.toggle('empty', i >= this.team2[0].health);
             }
         }
+        
+        const canvasWidth = this.cachedCanvasWidth || window.innerWidth;
+        const canvasHeight = this.cachedCanvasHeight || window.innerHeight;
+        const offsetX = this.canvasOffsetX || 0;
+        const offsetY = this.canvasOffsetY || 0;
         
         [...this.team1, ...this.team2].forEach(player => {
             if (!player.healthBarElement || !player.mesh) return;
@@ -2133,9 +2385,8 @@ class MundoKnifeGame3D {
             );
             pos.project(this.camera);
             
-            const rect = this.renderer.domElement.getBoundingClientRect();
-            const x = (pos.x * 0.5 + 0.5) * rect.width;
-            const y = (-pos.y * 0.5 + 0.5) * rect.height;
+            const x = (pos.x * 0.5 + 0.5) * canvasWidth + offsetX;
+            const y = (-pos.y * 0.5 + 0.5) * canvasHeight + offsetY;
             
             healthBar.style.left = (x - 43) + 'px';
             healthBar.style.top = (y - 10) + 'px';
@@ -2150,7 +2401,6 @@ class MundoKnifeGame3D {
     }
 
     updateCooldownDisplay() {
-        // ⚡ 运行时保护：防止在初始化前调用
         if (!this.playerSelf) {
             return;
         }
@@ -2162,10 +2412,8 @@ class MundoKnifeGame3D {
         
         const cooldownCircle = document.getElementById('cooldownCircle');
         const cooldownTime = document.getElementById('cooldownTime');
-        const cooldownBg = document.querySelector('.cooldown-circle-bg');
         
-        // 安全检查
-        if (!cooldownCircle || !cooldownTime || !cooldownBg) {
+        if (!cooldownCircle || !cooldownTime) {
             return;
         }
         
@@ -2173,29 +2421,65 @@ class MundoKnifeGame3D {
         const circumference = 2 * Math.PI * radius;
         const offset = circumference * (1 - cooldownProgress);
         
-        cooldownCircle.style.strokeDasharray = circumference;
-        cooldownCircle.style.strokeDashoffset = offset;
+        if (!this._cooldownInitialized) {
+            cooldownCircle.style.strokeDasharray = `${circumference}`;
+            this._cooldownInitialized = true;
+        }
         
-        if (cooldownProgress < 1) {
-            // 冷却中：红色圆圈 + 倒计时
-            cooldownTime.textContent = remainingTime.toFixed(1) + 's';
-            cooldownBg.style.stroke = '#ff0000';
-            cooldownCircle.style.opacity = '1';
-            cooldownCircle.style.stroke = '#ff0000';
-        } else {
-            // 准备好：绿色半透明圆圈 + "READY" 文字
-            cooldownTime.textContent = 'READY';
-            cooldownBg.style.stroke = '#00ff00';
-            cooldownCircle.style.opacity = '0.5';  // ✅ 修复：保持可见（半透明绿色）
-            cooldownCircle.style.stroke = '#00ff00';
+        if (!this.lastCooldownOffset || Math.abs(this.lastCooldownOffset - offset) > 1) {
+            cooldownCircle.style.strokeDashoffset = `${offset}`;
+            this.lastCooldownOffset = offset;
+        }
+        
+        const newText = cooldownProgress < 1 ? remainingTime.toFixed(1) + 's' : 'READY';
+        if (cooldownTime.textContent !== newText) {
+            cooldownTime.textContent = newText;
         }
     }
 
     onWindowResize() {
-        const rect = this.container.getBoundingClientRect();
-        this.camera.aspect = rect.width / rect.height;
-        this.camera.updateProjectionMatrix();
-        this.renderer.setSize(rect.width, rect.height, false);
+        if (!this.container) {
+            this.container = document.getElementById('gameCanvas');
+        }
+        if (!this.container) {
+            console.warn('[RESIZE] gameCanvas not found, skipping resize');
+            return;
+        }
+        
+        requestAnimationFrame(() => {
+            const targetAspect = 16 / 9;
+            const windowWidth = window.innerWidth;
+            const windowHeight = window.innerHeight;
+            const windowAspect = windowWidth / windowHeight;
+            
+            let width, height;
+            if (windowAspect > targetAspect) {
+                height = windowHeight;
+                width = height * targetAspect;
+            } else {
+                width = windowWidth;
+                height = width / targetAspect;
+            }
+            
+            this.cachedCanvasWidth = width;
+            this.cachedCanvasHeight = height;
+            this.canvasOffsetX = (windowWidth - width) / 2;
+            this.canvasOffsetY = (windowHeight - height) / 2;
+            
+            this.camera.aspect = targetAspect;
+            this.camera.updateProjectionMatrix();
+            
+            this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            this.renderer.setSize(width, height, true);
+            
+            if (this.renderer.domElement) {
+                this.renderer.domElement.style.position = 'absolute';
+                this.renderer.domElement.style.left = this.canvasOffsetX + 'px';
+                this.renderer.domElement.style.top = this.canvasOffsetY + 'px';
+            }
+            
+            console.log('[RESIZE] Canvas resized to:', width.toFixed(0), 'x', height.toFixed(0), 'offset:', this.canvasOffsetX.toFixed(0), ',', this.canvasOffsetY.toFixed(0));
+        });
     }
 
     startCountdown() {
@@ -2229,9 +2513,18 @@ class MundoKnifeGame3D {
         if (this.playerOpponent) {
             this.playerOpponent.knifeCooldown = 4000;
         }
-        this.playerSelf.lastKnifeTime = Date.now();
+        // Set lastKnifeTime to 1 second in the future so the 4-second cooldown
+        // finishes exactly when the 5-second countdown ends (at FIGHT!)
+        // This makes the cooldown circle start spinning and be ready at FIGHT
+        const cooldownStartOffset = 1000; // 5 second countdown - 4 second cooldown = 1 second offset
+        this.playerSelf.lastKnifeTime = Date.now() + cooldownStartOffset;
         if (this.playerOpponent) {
-            this.playerOpponent.lastKnifeTime = Date.now();
+            this.playerOpponent.lastKnifeTime = Date.now() + cooldownStartOffset;
+        }
+        
+        this.playerSelf.canAttack = false;
+        if (this.playerOpponent && this.playerOpponent.isAI) {
+            this.playerOpponent.aiCanAttack = false;
         }
         
         let count = 5;
@@ -2411,117 +2704,114 @@ class MundoKnifeGame3D {
         });
         
         socket.on('serverKnifeSpawn', (data) => {
+            console.log('[KNIFE][SPAWN-RECV]', { ownerTeam: data.ownerTeam, typeOwnerTeam: typeof data.ownerTeam, actionId: data.actionId, knifeId: data.knifeId, myTeam: this.myTeam, typeMyTeam: typeof this.myTeam, opponentTeam: this.opponentTeam });
             
             if (data.ownerTeam === this.myTeam && data.actionId) {
                 const predictedKnife = this.knives.find(k => k.actionId === data.actionId && k.isPredicted);
                 if (predictedKnife) {
-                    console.log(`[SERVER-RECONCILE] Found predicted knife, replacing with server knife ${data.knifeId}`);
+                    console.log('[KNIFE][SPAWN-LOCAL-MATCH]', { actionId: data.actionId, knifeId: data.knifeId });
                     predictedKnife.knifeId = data.knifeId;
                     predictedKnife.isPredicted = false;
                     predictedKnife.serverConfirmed = true;
                     return;
+                } else {
+                    console.warn('[KNIFE][SPAWN-LOCAL-MISS]', { actionId: data.actionId, knives: this.knives.map(k => ({ actionId: k.actionId, isPredicted: k.isPredicted, knifeId: k.knifeId })) });
                 }
             }
             
             if (data.ownerTeam !== this.myTeam) {
+                console.log('[KNIFE][SPAWN-REMOTE]', data);
                 const thrower = data.ownerTeam === this.opponentTeam ? this.playerOpponent : null;
                 if (thrower) {
                     const targetX = data.x + data.velocityX * 10;
                     const targetZ = data.z + data.velocityZ * 10;
-                    const knife = this.createKnife3DTowards(thrower, targetX, targetZ, null);
+                    
+                    const knifeAudio = new Audio('knife-slice-41231.mp3');
+                    knifeAudio.volume = 0.4;
+                    knifeAudio.play().catch(e => {});
+                    
+                    const knife = this.createKnife3DTowards(thrower, targetX, targetZ, null, knifeAudio);
                     if (knife) {
                         knife.knifeId = data.knifeId;
                         knife.serverConfirmed = true;
+                        console.log('[KNIFE][SPAWN-REMOTE-CREATED]', { knifeId: data.knifeId, idx: this.knives.indexOf(knife) });
                     }
                 }
             }
         });
         
         socket.on('serverKnifeHit', (data) => {
-            // ⚡ Server confirmed a hit - check if we predicted it
-            const knife = this.knives.find(k => k.knifeId === data.knifeId || (k.isPredicted && k.predictedHit));
+            console.log('[KNIFE][HIT-RECV]', { knifeId: data.knifeId, targetTeam: data.targetTeam, hitX: data.hitX, hitZ: data.hitZ });
             
-            if (knife && knife.predictedHit) {
-                // We predicted this hit! Confirm it
-                console.log(`✅ [HIT-CONFIRMED] Server confirmed our predicted hit!`);
-                const predictedTarget = knife.predictedHit.target;
-                
-                // Apply actual server health (may differ from prediction)
-                if (data.targetTeam !== undefined && data.health !== undefined) {
-                    const targetTeam = data.targetTeam === 1 ? this.team1 : this.team2;
-                    const actualTarget = targetTeam.find(p => p.playerIndex === data.targetPlayerIndex);
-                    if (actualTarget) {
-                        actualTarget.health = data.health;
-                        actualTarget.predictedHealth = undefined; // Clear prediction
-                        this.updateHealthDisplay();
-                        
-                        if (actualTarget.health <= 0) {
-                            this.handlePlayerDeath(actualTarget);
-                        }
-                    }
-                }
-                
-                // Clear predicted hit flag
-                knife.predictedHit = null;
-            } else {
-                // Server hit we didn't predict - show effects
-                this.createBloodEffect(data.hitX, 5, data.hitZ);
+            let targetPlayer = null;
+            if (data.targetTeam === this.myTeam) {
+                targetPlayer = this.playerSelf;
+            } else if (data.targetTeam === this.opponentTeam) {
+                targetPlayer = this.playerOpponent;
+            }
+            
+            let hitX = data.hitX;
+            let hitY = 5;
+            let hitZ = data.hitZ;
+            
+            if (targetPlayer && targetPlayer.mesh) {
+                const targetWorldPos = new THREE.Vector3();
+                targetPlayer.mesh.getWorldPosition(targetWorldPos);
+                hitX = targetWorldPos.x;
+                hitY = targetWorldPos.y;
+                hitZ = targetWorldPos.z;
+            }
+            
+            const knife = this.knives.find(k => k.knifeId === data.knifeId);
+            
+            // Check if this hit was already predicted by the local player
+            // If so, skip duplicate blood/sound effects
+            const isLocalOwner = knife && knife.thrower && knife.thrower.team === this.myTeam;
+            const alreadyPredicted = knife && knife.predictedHit;
+            
+            if (!alreadyPredicted) {
+                // Only play blood/sound if this client did NOT already predict this hit
+                this.createBloodEffect(hitX, hitY, hitZ);
                 
                 const hitSound = document.getElementById('hitSound');
                 if (hitSound) {
                     hitSound.currentTime = 0;
                     hitSound.play().catch(e => {});
                 }
-                
-                // Apply health update if provided
-                if (data.targetTeam !== undefined && data.health !== undefined) {
-                    const targetTeam = data.targetTeam === 1 ? this.team1 : this.team2;
-                    const actualTarget = targetTeam.find(p => p.playerIndex === data.targetPlayerIndex);
-                    if (actualTarget) {
-                        actualTarget.health = data.health;
-                        this.updateHealthDisplay();
-                        
-                        if (actualTarget.health <= 0) {
-                            this.handlePlayerDeath(actualTarget);
-                        }
-                    }
-                }
             }
             
-            // Remove knife
             if (knife) {
-                this.disposeKnife(knife);
-                const index = this.knives.indexOf(knife);
-                if (index > -1) {
-                    this.knives.splice(index, 1);
+                console.log('[KNIFE][HIT-FIND-SUCCESS]', { knifeId: data.knifeId, idx: this.knives.indexOf(knife), hasHit: knife.hasHit, predictedHit: knife.predictedHit });
+                knife.hasHit = true;
+                if (knife.mesh) {
+                    knife.mesh.position.set(hitX, hitY, hitZ);
                 }
+                setTimeout(() => {
+                    this.disposeKnife(knife);
+                    const index = this.knives.indexOf(knife);
+                    if (index > -1) {
+                        this.knives.splice(index, 1);
+                    }
+                }, 50);
+            } else {
+                console.warn('[KNIFE][HIT-FIND-FAIL]', { knifeId: data.knifeId, knives: this.knives.map(k => ({ knifeId: k.knifeId, actionId: k.actionId, hasHit: k.hasHit })) });
             }
         });
         
         // Phase 3: Movement reconciliation with server acknowledgments
+        // Disabled small corrections to prevent micro-teleporting/stuttering
+        // Only correct for very large errors (e.g., respawn, teleport)
         socket.on('serverMoveAck', (data) => {
             if (!data.actionId) return;
             
-            // Server has acknowledged movement, reconcile if needed
-            const serverX = data.x;
-            const serverZ = data.z;
-            const errorThreshold = 5.0; // Allow 5 units of error before reconciling
-            
-            const errorDist = Math.sqrt(
-                Math.pow(this.playerSelf.x - serverX, 2) + 
-                Math.pow(this.playerSelf.z - serverZ, 2)
-            );
-            
-            if (errorDist > errorThreshold) {
-                console.log(`[MOVE-RECONCILE] Position mismatch detected: ${errorDist.toFixed(2)} units, correcting to server position`);
-                this.playerSelf.x = serverX;
-                this.playerSelf.z = serverZ;
-                
-                if (this.playerSelf.mesh) {
-                    this.playerSelf.mesh.position.x = serverX;
-                    this.playerSelf.mesh.position.z = serverZ;
-                }
+            if (this.NETCODE.reconciliation && this.reconciler) {
+                return;
             }
+            
+            // Disabled: small position corrections cause visible stuttering
+            // The host's movement is client-authoritative for smooth gameplay
+            // Only very large errors (>50 units) would indicate a real desync
+            // that needs correction (e.g., respawn position)
         });
         
         socket.on('serverKnifeDestroy', (data) => {
@@ -2537,6 +2827,10 @@ class MundoKnifeGame3D {
         });
         
         socket.on('serverGameState', (data) => {
+            // Reset per-frame flags for 3v3 optimization
+            this._serverTimeOffsetUpdatedThisFrame = false;
+            this._networkStatsUpdatedThisFrame = false;
+            
             if (this.debugSync && data.serverTime) {
                 const clientTime = Date.now();
                 const offset = clientTime - data.serverTime;
@@ -2560,96 +2854,100 @@ class MundoKnifeGame3D {
                         }
                     }
                     
-                    if (team === this.myTeam) {
-                        if (this.NETCODE.reconciliation && this.reconciler && this.inputBuffer && serverPlayer.lastProcessedSeq !== undefined) {
-                            this.inputBuffer.acknowledge(serverPlayer.lastProcessedSeq);
-                            
-                            const unackedInputs = this.inputBuffer.getUnacknowledgedInputs();
-                            
-                            this.reconciler.reconcile({
-                                x: serverPlayer.x,
-                                z: serverPlayer.z,
-                                health: serverPlayer.health,
-                                isDead: serverPlayer.isDead
-                            }, unackedInputs);
-                        } else {
-                            // ⚡ Improved reconciliation - only correct large errors
-                            const dx = this.playerSelf.x - serverPlayer.x;
-                            const dz = this.playerSelf.z - serverPlayer.z;
-                            const positionErrorSq = dx * dx + dz * dz;
-                            
-                            // Only correct if error is significant (reduced threshold for smoother experience)
-                            if (positionErrorSq > 100) { // Increased from 25 to 100 to reduce corrections
-                                // Smooth correction instead of instant snap
-                                const errorDist = Math.sqrt(positionErrorSq);
-                                const correctionSpeed = 0.3; // Smooth correction factor
-                                
-                                this.playerSelf.x += (serverPlayer.x - this.playerSelf.x) * correctionSpeed;
-                                this.playerSelf.z += (serverPlayer.z - this.playerSelf.z) * correctionSpeed;
-                                
-                                if (this.playerSelf.mesh) {
-                                    this.playerSelf.mesh.position.x = this.playerSelf.x;
-                                    this.playerSelf.mesh.position.z = this.playerSelf.z;
-                                }
-                                
-                                console.log(`🔄 [RECONCILE] Smoothly correcting position error: ${errorDist.toFixed(2)} units`);
-                            }
-                            
-                            // Don't override target if player just moved (within last 200ms)
-                            const timeSinceLastInput = Date.now() - this.lastMoveInputTime;
-                            if (serverPlayer.targetX != null && serverPlayer.targetZ != null && timeSinceLastInput > 200) {
-                                this.playerSelf.targetX = serverPlayer.targetX;
-                                this.playerSelf.targetZ = serverPlayer.targetZ;
-                            }
+                    // Check if this serverPlayer is self (by playerId)
+                    const isSelf = serverPlayer.playerId && this.playerSelf && 
+                                   serverPlayer.playerId === this.playerSelf.playerId;
+                    
+                    if (isSelf) {
+                        // Only apply position correction to self player
+                        // Disabled small position corrections to prevent micro-teleporting/stuttering
+                        // Host movement is client-authoritative for smooth gameplay
+                        // Only correct for very large errors (>2500 sq units = 50 units distance)
+                        // which would indicate a real desync (e.g., respawn, teleport)
+                        const dx = this.playerSelf.x - serverPlayer.x;
+                        const dz = this.playerSelf.z - serverPlayer.z;
+                        const positionErrorSq = dx * dx + dz * dz;
+                        
+                        if (positionErrorSq > 2500) {
+                            this.playerSelf.x = serverPlayer.x;
+                            this.playerSelf.z = serverPlayer.z;
                         }
-                    } else if (team === this.opponentTeam) {
+                    } else {
+                        // This is a remote player (teammate or opponent)
                         const now = Date.now();
+                        const playerId = serverPlayer.playerId;
                         
-                        const rawOffset = now - data.serverTime;
-                        this.serverTimeOffset = this.serverTimeOffset * 0.9 + rawOffset * 0.1;
+                        // Update server time offset (only need to do once per serverGameState)
+                        if (!this._serverTimeOffsetUpdatedThisFrame) {
+                            const rawOffset = now - data.serverTime;
+                            this.serverTimeOffset = this.serverTimeOffset * 0.9 + rawOffset * 0.1;
+                            this._serverTimeOffsetUpdatedThisFrame = true;
+                        }
                         
-                        this.opponentSnapshots.push({
+                        const snapshot = {
                             timestamp: data.serverTime,
                             x: serverPlayer.x,
                             z: serverPlayer.z,
                             targetX: serverPlayer.targetX,
                             targetZ: serverPlayer.targetZ,
                             isMoving: serverPlayer.isMoving
-                        });
+                        };
+                        
+                        // For 3v3 mode: use per-player snapshot buffers for ALL remote players (teammates + opponents)
+                        if (this.gameMode === '3v3' && playerId) {
+                            let playerBuffer = this.remotePlayerSnapshots.get(playerId);
+                            if (!playerBuffer) {
+                                playerBuffer = [];
+                                this.remotePlayerSnapshots.set(playerId, playerBuffer);
+                            }
+                            playerBuffer.push(snapshot);
+                            if (playerBuffer.length > this.snapshotLimit) {
+                                playerBuffer.shift();
+                            }
+                        }
+                        
+                        // For 1v1 mode: use single opponentSnapshots array (backward compatible, only for opponents)
+                        if (team === this.opponentTeam) {
+                            this.opponentSnapshots.push(snapshot);
+                            
+                            if (this.opponentSnapshots.length > this.snapshotLimit) {
+                                this.opponentSnapshots.shift();
+                            }
+                        }
                         
                         if (this.debugSync) {
-                            console.log(`[SYNC-DEBUG] Pushed snapshot - count:${this.opponentSnapshots.length}, serverTime:${data.serverTime}, offset:${this.serverTimeOffset.toFixed(2)}ms, first:${this.opponentSnapshots[0].timestamp}, last:${this.opponentSnapshots[this.opponentSnapshots.length-1].timestamp}`);
+                            console.log(`[SYNC-DEBUG] Pushed snapshot - playerId:${playerId}, team:${team}, count:${this.remotePlayerSnapshots.get(playerId)?.length || 0}, serverTime:${data.serverTime}`);
                         }
                         
-                        this.networkStats.lastUpdateTimes.push(now);
-                        if (this.networkStats.lastUpdateTimes.length > 20) {
-                            this.networkStats.lastUpdateTimes.shift();
-                        }
-                        
-                        // Calculate inter-arrival times for jitter measurement
-                        if (this.networkStats.lastUpdateTimes.length >= 2) {
-                            const lastIdx = this.networkStats.lastUpdateTimes.length - 1;
-                            const interArrival = this.networkStats.lastUpdateTimes[lastIdx] - this.networkStats.lastUpdateTimes[lastIdx - 1];
-                            this.networkStats.interArrivalTimes.push(interArrival);
-                            if (this.networkStats.interArrivalTimes.length > 100) {
-                                this.networkStats.interArrivalTimes.shift();
+                        // Update network stats (only once per frame, not per player)
+                        if (!this._networkStatsUpdatedThisFrame) {
+                            this.networkStats.lastUpdateTimes.push(now);
+                            if (this.networkStats.lastUpdateTimes.length > 20) {
+                                this.networkStats.lastUpdateTimes.shift();
                             }
                             
-                            // Calculate percentiles every 50 samples
-                            if (this.networkStats.interArrivalTimes.length >= 50 && this.networkStats.interArrivalTimes.length % 50 === 0) {
-                                const sorted = [...this.networkStats.interArrivalTimes].sort((a, b) => a - b);
-                                this.networkStats.p50 = sorted[Math.floor(sorted.length * 0.5)];
-                                this.networkStats.p95 = sorted[Math.floor(sorted.length * 0.95)];
-                                this.networkStats.p99 = sorted[Math.floor(sorted.length * 0.99)];
-                                console.log(`[JITTER] p50: ${this.networkStats.p50.toFixed(1)}ms, p95: ${this.networkStats.p95.toFixed(1)}ms, p99: ${this.networkStats.p99.toFixed(1)}ms`);
+                            // Calculate inter-arrival times for jitter measurement
+                            if (this.networkStats.lastUpdateTimes.length >= 2) {
+                                const lastIdx = this.networkStats.lastUpdateTimes.length - 1;
+                                const interArrival = this.networkStats.lastUpdateTimes[lastIdx] - this.networkStats.lastUpdateTimes[lastIdx - 1];
+                                this.networkStats.interArrivalTimes.push(interArrival);
+                                if (this.networkStats.interArrivalTimes.length > 100) {
+                                    this.networkStats.interArrivalTimes.shift();
+                                }
+                                
+                                // Calculate percentiles every 50 samples
+                                if (this.networkStats.interArrivalTimes.length >= 50 && this.networkStats.interArrivalTimes.length % 50 === 0) {
+                                    const sorted = [...this.networkStats.interArrivalTimes].sort((a, b) => a - b);
+                                    this.networkStats.p50 = sorted[Math.floor(sorted.length * 0.5)];
+                                    this.networkStats.p95 = sorted[Math.floor(sorted.length * 0.95)];
+                                    this.networkStats.p99 = sorted[Math.floor(sorted.length * 0.99)];
+                                    console.log(`[JITTER] p50: ${this.networkStats.p50.toFixed(1)}ms, p95: ${this.networkStats.p95.toFixed(1)}ms, p99: ${this.networkStats.p99.toFixed(1)}ms`);
+                                }
                             }
+                            
+                            this.updateAdaptiveInterpolationDelay();
+                            this._networkStatsUpdatedThisFrame = true;
                         }
-                        
-                        if (this.opponentSnapshots.length > this.snapshotLimit) {
-                            this.opponentSnapshots.shift();
-                        }
-                        
-                        this.updateAdaptiveInterpolationDelay();
                     }
                 });
             }
@@ -2661,6 +2959,26 @@ class MundoKnifeGame3D {
         });
         
         socket.on('serverHealthUpdate', (data) => {
+            // LAG DEBUG: Log when health update is received
+            const clientReceiveTime = Date.now();
+            const debugId = data.debugId || 'unknown';
+            const serverEmitTime = data.serverEmitTime || 0;
+            const clientSendTime = data.clientSendTime || 0;
+            
+            // Calculate end-to-end delay if we have the original send time
+            let e2eDelay = 'N/A';
+            if (clientSendTime > 0) {
+                e2eDelay = `${clientReceiveTime - clientSendTime}ms`;
+            }
+            
+            // Calculate server-to-client leg if we have server emit time
+            let s2cDelay = 'N/A';
+            if (serverEmitTime > 0) {
+                // Note: This is approximate due to clock skew
+                s2cDelay = `~${clientReceiveTime - serverEmitTime}ms (clock skew not corrected)`;
+            }
+            
+            console.log(`[LAG][KNIFE][CLIENT-RECV-HEALTH] id=${debugId} t=${clientReceiveTime} e2e=${e2eDelay} serverEmit=${serverEmitTime} s2c=${s2cDelay}`);
             console.log(`[SERVER-HEALTH] Received authoritative health update - targetTeam:${data.targetTeam} health:${data.health} serverTick:${data.serverTick}`);
             this.applyServerHealthUpdate(data);
         });
@@ -2710,7 +3028,6 @@ class MundoKnifeGame3D {
         while (this.accumulator >= this.fixedDt) {
             if (this.gameState.isRunning || this.gameState.countdownActive) {
                 this.updatePlayers(this.fixedDt);
-                this.updateCamera();
                 if (this.gameState.isRunning) {
                     this.throwKnife();
                     this.updateKnives(this.fixedDt);
@@ -2720,10 +3037,6 @@ class MundoKnifeGame3D {
             this.accumulator -= this.fixedDt;
         }
         
-        if (this.reconciler) {
-            this.reconciler.updateSmoothing();
-        }
-        
         [...this.team1, ...this.team2].forEach(player => {
             if (player && player.mixer) {
                 this.updatePlayerAnimation(player, frameTime);
@@ -2731,6 +3044,17 @@ class MundoKnifeGame3D {
         });
         
         if (this.gameState.isRunning || this.gameState.countdownActive) {
+            if (this.isMultiplayer) {
+                // Use different interpolation paths based on game mode
+                if (this.gameMode === '3v3') {
+                    // 3v3 mode: interpolate all remote opponents using per-player buffers
+                    this.interpolateAllRemotePlayers();
+                } else if (this.playerOpponent) {
+                    // 1v1 mode: use single opponent interpolation (backward compatible)
+                    this.interpolateOpponentPosition();
+                }
+            }
+            
             [...this.team1, ...this.team2].forEach(player => {
                 if (player && player.mesh) {
                     player.mesh.position.x = player.x;
@@ -2738,6 +3062,8 @@ class MundoKnifeGame3D {
                     player.mesh.rotation.y = player.rotation;
                 }
             });
+            
+            this.updateCamera(frameTime);
         }
         
         this.updateCooldownDisplay();
@@ -2806,6 +3132,8 @@ class MundoKnifeGame3D {
         
         for (let i = 0; i < this.knives.length && i < this.previousState.knives.length; i++) {
             const knife = this.knives[i];
+            if (knife.hasHit) continue;
+            
             const prevKnife = this.previousState.knives[i];
             const currKnife = this.currentState.knives[i];
             
@@ -2870,6 +3198,11 @@ class MundoKnifeGame3D {
         console.log('[DISPOSE] Cleaning up game instance');
         this.gameState.isRunning = false;
         this.stopLatencyMeasurement();
+        
+        // Stop TimeSync timer to prevent background interval from running after game ends
+        if (this.timeSync) {
+            this.timeSync.stop();
+        }
         
         if (this.eventListeners.documentContextMenu) {
             document.removeEventListener('contextmenu', this.eventListeners.documentContextMenu, true);
@@ -2971,6 +3304,21 @@ class MundoKnifeGame3D {
         if (this.gameLoopId) {
             cancelAnimationFrame(this.gameLoopId);
         }
+        
+        // Clear per-player snapshot buffers for 3v3 mode
+        if (this.remotePlayerSnapshots) {
+            this.remotePlayerSnapshots.clear();
+        }
+        
+        // Reset preloadedAssets so the next game instance will create fresh scene/renderer/camera
+        // Keep characterModel and animations as they can be reused
+        console.log('[DISPOSE] Resetting preloadedAssets for next game');
+        preloadedAssets.scene = null;
+        preloadedAssets.renderer = null;
+        preloadedAssets.camera = null;
+        preloadedAssets.terrain = null;
+        preloadedAssets.lights = [];
+        preloadedAssets.isLoaded = false;
     }
 }
 
@@ -2982,6 +3330,15 @@ function restartGame() {
             currentGame.dispose();
             currentGame = null;
         }
+        
+        const gameCanvas = document.getElementById('gameCanvas');
+        if (gameCanvas) {
+            gameCanvas.style.display = 'block';
+            console.log('[RESTART] Canvas display:', getComputedStyle(gameCanvas).display);
+        }
+        
+        document.body.dataset.state = 'game';
+        
         window.__gameStarted = false;
         window.__mpStarting = false;
         startPractice(practiceMode);
@@ -4015,10 +4372,20 @@ function startGame(isMultiplayer = false) {
         mainMenuVideo.style.display = 'none';
     }
     
+    const hudElements = [
+        document.querySelector('.latency-display'),
+        document.querySelector('.fps-display'),
+        document.querySelector('.cooldown-display'),
+        document.querySelector('.instructions')
+    ];
+    hudElements.forEach(el => {
+        if (el) el.style.display = 'block';
+    });
+    
     const myTeamNumber = isHost ? 1 : 2;
     console.log('[GAME] Creating game with myTeam:', myTeamNumber, 'isHost:', isHost);
     currentGame = new MundoKnifeGame3D(gameMode, isMultiplayer, isHost, practiceMode, myTeamNumber);
-    window.currentGame = currentGame; // Expose for testing
+    window.currentGame = currentGame;// Expose for testing
 }
 
 window.addEventListener('load', async () => {
