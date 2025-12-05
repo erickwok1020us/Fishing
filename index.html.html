@@ -63,7 +63,8 @@
             position: relative;
             width: 100vw;
             height: 100vh;
-            background: #000;
+            background: linear-gradient(to bottom, #87CEEB 0%, #87CEEB 20%, #5a9fd4 20%, #5a9fd4 25%, var(--ground-color) 25%, var(--ground-color) 100%);
+            box-shadow: inset 0 0 100px rgba(0, 0, 0, 0.3);
         }
 
         #gameCanvas {
@@ -336,22 +337,6 @@
             z-index: 150;
             transform: translate(-50%, -50%);
             box-shadow: 0 0 10px rgba(255, 255, 0, 0.5);
-        }
-
-        .version-display {
-            font-size: 10px;
-            color: rgba(255, 255, 255, 0.6);
-            font-family: monospace;
-            pointer-events: none;
-            margin-left: 8px;
-            vertical-align: middle;
-        }
-
-        .settings-row {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
         }
 
         .main-menu {
@@ -938,10 +923,6 @@
             display: block !important;
         }
 
-        body[data-state="game"] .cooldown-display {
-            display: block !important;
-        }
-
         /* Settings Interface Spacing Optimization */
         #settingsInterface .game-title-image {
             max-height: 80px !important;
@@ -1050,10 +1031,7 @@
             <button class="menu-btn" onclick="playButtonClickSound(); showCreateRoom()">Create Room</button>
             <button class="menu-btn" onclick="playButtonClickSound(); showJoinRoom()">Join Room</button>
             <button class="menu-btn" onclick="playButtonClickSound(); showModeSelection()">Practise with AI</button>
-            <div class="settings-row">
-                <button class="menu-btn" onclick="playButtonClickSound(); showSettings()" style="font-size: 0.9rem; padding: 8px 16px; margin-top: 10px;">⚙️ Settings</button>
-                <span class="version-display">PR#42</span>
-            </div>
+            <button class="menu-btn" onclick="playButtonClickSound(); showSettings()" style="font-size: 0.9rem; padding: 8px 16px; margin-top: 10px;">⚙️ Settings</button>
         </div>
     </div>
 
@@ -1339,38 +1317,41 @@
             }
         }
         
-        let audioUnmuteAttempted = false;
-        
         function tryUnmuteAudio() {
             const audio = document.getElementById('mainMenuAudio');
-            if (audio && !audioUnmuted && !audioUnmuteAttempted) {
-                audioUnmuteAttempted = true;
+            if (audio && !audioUnmuted) {
                 audio.muted = false;
                 audio.volume = 0.5;
                 audio.play().then(() => {
                     audioUnmuted = true;
                     console.log('Audio unmuted and playing');
                 }).catch(err => {
-                    audioUnmuteAttempted = false;
+                    console.log('Audio unmute blocked, will retry on user interaction:', err);
                 });
             }
         }
         
         window.addEventListener('DOMContentLoaded', () => {
+            // Try to unmute immediately (will likely fail due to browser policy)
             tryUnmuteAudio();
             
+            // Unmute on first user interaction
             const unmuteOnInteraction = () => {
                 tryUnmuteAudio();
                 if (audioUnmuted) {
                     document.removeEventListener('click', unmuteOnInteraction);
                     document.removeEventListener('keydown', unmuteOnInteraction);
                     document.removeEventListener('touchstart', unmuteOnInteraction);
+                    document.removeEventListener('mousemove', unmuteOnInteraction);
+                    document.removeEventListener('mouseenter', unmuteOnInteraction);
                 }
             };
             
             document.addEventListener('click', unmuteOnInteraction);
             document.addEventListener('keydown', unmuteOnInteraction);
             document.addEventListener('touchstart', unmuteOnInteraction);
+            document.addEventListener('mousemove', unmuteOnInteraction);
+            document.addEventListener('mouseenter', unmuteOnInteraction);
         });
         
         // Socket.IO client library (loaded below) will provide the real io() function
@@ -1384,6 +1365,6 @@
     <script src="client/net/TimeSync.js"></script>
     <script src="client/net/InputBuffer.js"></script>
     <script src="client/net/Reconciler.js"></script>
-    <script src="game3d.js?v=452"></script>
+    <script src="game3d.js?v=448"></script>
 </body>
 </html>

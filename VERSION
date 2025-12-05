@@ -1,26 +1,81 @@
-V449
+V424
 
-Release Date: 2025-11-27
+Release Date: 2025-01-30
 
-Bug Fixes & Improvements:
+Bug Fix: Comprehensive Movement & Collision Fixes
 
-1. Fixed Q Skill Cooldown Display Visibility Issue
-   - Fixed cooldown circle disappearing when ready (opacity 0 -> 0.5)
-   - Changed position from absolute to fixed for better visibility
-   - Added z-index 400 to prevent overlay issues
-   - Added runtime protection and safety checks
-   - Added safe-area-inset support for notched phones
+Fixed remaining stuttering, knife collision failures, and latency-related jitter.
 
-2. Fixed FBX Animation File Names for R2 CDN Loading
-   - Fixed Animation_Run_60.fbx to Animation_RunFast_frame_rate_60.fbx
-   - Fixed Animation_Death_60.fbx to Animation_Dead_frame_rate_60.fbx
-   - Added improved error handling and loading progress logs
+Root Causes (V424):
+- Opponent position was hard-set every 50ms causing visible jitter
+- Knife collision used discrete point checks, causing tunneling when dt spikes
+- Server dt was variable, causing inconsistent physics simulation
 
-3. Network Latency Optimizations
-   - Enabled instant client-side prediction for movement
-   - Optimized server state synchronization
-   - Enabled local collision detection in multiplayer mode
+Changes (V424):
+Frontend:
+- Implemented opponent position interpolation with 100ms buffer for smooth movement
+- Opponent now smoothly interpolates between server snapshots instead of hard-snapping
+- Eliminates visible jitter from 30-60ms latency fluctuations
 
-Previous Version (V424):
-- Comprehensive Movement & Collision Fixes
-- Fixed remaining stuttering, knife collision failures, and latency-related jitter
+Backend:
+- Implemented swept collision detection for knives (line-circle intersection)
+- Prevents tunneling by checking knife path between frames, not just endpoints
+- Fixed timestep physics (always 1/60s) for stable simulation regardless of dt spikes
+- Knives now reliably hit opponents even during lag spikes
+
+Previous Changes (V422):
+- Client now receives targetX/targetZ from server in serverGameState event
+- Added Number() type coercion for team comparison to handle string/number mismatches
+- Added grace window after local input to prevent stale server updates overwriting fresh clicks
+- For SELF: Apply server's targetX/targetZ only after grace window expires
+- For SELF: Do NOT overwrite isMoving from server (let client control based on distance to target)
+- For OPPONENT: Apply server's x/z/targetX/targetZ/isMoving for full server authority
+- Added undefined checks for targetX/targetZ to handle mixed deployments
+- Position error reconciliation (threshold 25) still applies for self to handle prediction errors
+- updatePlayerMovement() now interpolates toward server-provided target, not stale local target
+
+Previous Fixes (V420):
+- Fixed spawn position bug (team type coercion)
+- Fixed missing hit effects (always show blood/audio)
+- Fixed latency regression (removed high-frequency logs)
+
+Note: Map boundary restrictions remain client-side only (isWithinMapBounds in game3d.js)
+
+Previous Fixes (V418):
+
+Changes:
+- Modified updatePlayerMovement() to skip client-side interpolation for opponent in multiplayer
+- Server now sends authoritative position updates at 20Hz via serverGameState event
+- Opponent position is now driven entirely by server updates (no client-side prediction)
+- This ensures both players see consistent movement for all characters
+
+Previous Fixes (V417):
+
+Issue 1: Start Game Button Not Showing
+Root Cause:
+- updateStartButtonState() was using old isReady/opponentReady variables
+- New team-based system stores ready status in currentRoomState.players[socketId].ready
+- Function wasn't checking roomState, causing button to never show
+
+Changes:
+- Rewrote updateStartButtonState() to use currentRoomState instead of legacy variables
+- Added proper host detection using currentRoomState.hostSocket === socket.id
+- Added team capacity checks (1v1: 1 per team, 3v3: 1+ per team)
+- Added comprehensive debugging logs with [START-CHECK] prefix
+- Button now correctly shows when: all players ready + both teams filled + game not started
+
+Issue 2: Host Disconnect Not Handled
+Root Cause:
+- When host closed browser, guests remained in room with no way to start game
+- No notification sent to remaining players
+
+Changes:
+- Added hostDisconnected event handler
+- When host disconnects, all players receive alert: "Host has left the room. Room is now closed."
+- Players automatically return to main menu
+- Room is deleted from server
+
+Previous Fixes (V415):
+- Fixed handleTeamSelect() to allow first-time team selection in 1v1 mode
+- Only blocks team switching after player is already assigned to a team
+- Added comprehensive debugging logs to track team selection flow
