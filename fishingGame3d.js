@@ -129,7 +129,7 @@ class FishingGame3D {
         }
         
         this.camera = new THREE.PerspectiveCamera(
-            60,
+            70, // Wider FOV to see more of the game area and turret above BET UI
             window.innerWidth / window.innerHeight,
             0.1,
             1000
@@ -264,7 +264,8 @@ class FishingGame3D {
     
     setupCamera() {
         // Top-down angled view for fishing game
-        this.camera.position.set(0, 80, 60);
+        // Raised camera position (90 instead of 80) for wider view so turret is visible above BET UI
+        this.camera.position.set(0, 90, 65);
         this.camera.lookAt(0, 0, 0);
     }
     
@@ -390,7 +391,42 @@ class FishingGame3D {
         // Bullet events
         socket.on('bulletSpawned', (data) => {
             if (data.ownerId !== this.myPlayerId) {
+                // Remote player's bullet - create new mesh
                 this.createBulletMesh(data);
+            } else {
+                // Our own bullet - map server bulletId to local predicted bullet
+                // Find the closest unconfirmed local bullet to associate with server ID
+                let bestBullet = null;
+                let bestDistSq = Infinity;
+                
+                for (const bullet of this.bullets) {
+                    if (bullet.userData.serverConfirmed) continue;
+                    const dx = bullet.position.x - data.x;
+                    const dz = bullet.position.z - data.z;
+                    const distSq = dx * dx + dz * dz;
+                    if (distSq < bestDistSq) {
+                        bestDistSq = distSq;
+                        bestBullet = bullet;
+                    }
+                }
+                
+                if (bestBullet && bestDistSq < 100) { // Within reasonable distance
+                    const oldId = bestBullet.userData.bulletId;
+                    bestBullet.userData.bulletId = data.bulletId;
+                    bestBullet.userData.velocityX = data.velocityX;
+                    bestBullet.userData.velocityZ = data.velocityZ;
+                    bestBullet.userData.serverConfirmed = true;
+                    
+                    // Re-key in bulletMeshes map
+                    this.bulletMeshes.delete(oldId);
+                    this.bulletMeshes.set(data.bulletId, bestBullet);
+                    
+                    debugLog('[BULLET] Mapped local bullet to server ID:', oldId, '->', data.bulletId);
+                } else {
+                    // Fallback: create new bullet if no match found
+                    debugLog('[BULLET] No matching local bullet, creating new');
+                    this.createBulletMesh(data);
+                }
             }
         });
         
@@ -768,7 +804,9 @@ class FishingGame3D {
             bulletId: data.bulletId,
             velocityX: data.velocityX,
             velocityZ: data.velocityZ,
-            spawnTime: Date.now()
+            spawnTime: Date.now(),
+            serverConfirmed: !!data.serverConfirmed, // For local predicted bullets, this starts false
+            hasHit: false
         };
         
         this.scene.add(bulletGroup);
@@ -783,6 +821,9 @@ class FishingGame3D {
         const bulletsToRemove = [];
         
         for (const bullet of this.bullets) {
+            // Skip bullets that have already hit something
+            if (bullet.userData.hasHit) continue;
+            
             // Update position
             bullet.position.x += bullet.userData.velocityX * dt;
             bullet.position.z += bullet.userData.velocityZ * dt;
@@ -814,8 +855,23 @@ class FishingGame3D {
     }
     
     handleBulletHit(data) {
-        // Create hit effect
+        // Mark bullet as hit immediately to stop movement
+        const bulletMesh = this.bulletMeshes.get(data.bulletId);
+        if (bulletMesh) {
+            bulletMesh.userData.hasHit = true;
+            // Move bullet to hit position for visual accuracy
+            bulletMesh.position.set(data.hitX, 1, data.hitZ);
+        }
+        
+        // Create fire/spark hit effect (like blood splash in Pudge Wars)
         this.createHitEffect(data.hitX, data.hitZ);
+        
+        // Play hit sound (placeholder - user will provide actual sound later)
+        const hitSound = document.getElementById('hitSound');
+        if (hitSound) {
+            hitSound.currentTime = 0;
+            hitSound.play().catch(() => {});
+        }
         
         // Update fish health bar
         const fishMesh = this.fishMeshes.get(data.fishId);
@@ -823,19 +879,25 @@ class FishingGame3D {
             this.updateFishHealthBar(fishMesh, data.fishHealth);
         }
         
-        // Remove bullet
-        this.removeBullet(data.bulletId);
+        // Remove bullet after a short delay for visual feedback
+        setTimeout(() => {
+            this.removeBullet(data.bulletId);
+        }, 50);
     }
     
     createHitEffect(x, z) {
-        // Particle burst effect
-        const particleCount = 10;
+        // Fire/spark particle burst effect (like blood splash in Pudge Wars)
+        const particleCount = 20; // More particles for dramatic effect
         const particles = [];
         
+        // Fire colors: orange, red-orange, yellow-orange
+        const fireColors = [0xFF4500, 0xFF6600, 0xFF8C00, 0xFFA500, 0xFFD700];
+        
         for (let i = 0; i < particleCount; i++) {
-            const geometry = new THREE.SphereGeometry(0.2, 4, 4);
+            const geometry = new THREE.SphereGeometry(0.3, 4, 4);
+            const color = fireColors[Math.floor(Math.random() * fireColors.length)];
             const material = new THREE.MeshBasicMaterial({
-                color: 0xFFD700,
+                color: color,
                 transparent: true,
                 opacity: 1
             });
@@ -843,10 +905,11 @@ class FishingGame3D {
             
             particle.position.set(x, 1, z);
             particle.userData = {
-                velocityX: (Math.random() - 0.5) * 20,
-                velocityY: Math.random() * 10 + 5,
-                velocityZ: (Math.random() - 0.5) * 20,
-                life: 1
+                velocityX: (Math.random() - 0.5) * 15,
+                velocityY: Math.random() * 12 + 6, // Higher upward velocity
+                velocityZ: (Math.random() - 0.5) * 15,
+                life: 1,
+                decay: 0.03 + Math.random() * 0.02 // Varied decay for natural look
             };
             
             this.scene.add(particle);
@@ -863,9 +926,13 @@ class FishingGame3D {
                     p.position.x += p.userData.velocityX * 0.016;
                     p.position.y += p.userData.velocityY * 0.016;
                     p.position.z += p.userData.velocityZ * 0.016;
-                    p.userData.velocityY -= 20 * 0.016; // Gravity
-                    p.userData.life -= 0.05;
+                    p.userData.velocityY -= 25 * 0.016; // Gravity
+                    p.userData.life -= p.userData.decay;
                     p.material.opacity = p.userData.life;
+                    
+                    // Scale down as particle fades
+                    const scale = 0.5 + p.userData.life * 0.5;
+                    p.scale.set(scale, scale, scale);
                 }
             }
             
@@ -874,6 +941,8 @@ class FishingGame3D {
             } else {
                 for (const p of particles) {
                     this.scene.remove(p);
+                    p.geometry.dispose();
+                    p.material.dispose();
                 }
             }
         };
