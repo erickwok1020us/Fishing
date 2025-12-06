@@ -633,12 +633,31 @@
         
         function startSinglePlayer() {
             hideMainMenu();
-            gameInstance = initFishingGame(false, true);
+            document.getElementById('loadingOverlay').style.display = 'flex';
             
-            // Start game immediately in single player
-            setTimeout(() => {
-                gameInstance.startCountdown();
-            }, 500);
+            // Connect to server (single-player still uses server for fish spawning)
+            connectToServer(SERVER_URL);
+            
+            // Generate a unique single-player room code
+            const spRoomCode = 'SP' + Math.random().toString(36).slice(2, 6).toUpperCase();
+            
+            socket.on('connect', () => {
+                // Use multiplayer mode (true) so all socket handlers are active
+                gameInstance = initFishingGame(true, true);
+                createRoom(spRoomCode);
+            });
+            
+            socket.on('roomCreated', () => {
+                document.getElementById('loadingOverlay').style.display = 'none';
+                // Auto-start game in single player mode
+                startGame();
+            });
+            
+            socket.on('roomExists', () => {
+                // If room exists (unlikely), try again with new code
+                const newCode = 'SP' + Math.random().toString(36).slice(2, 6).toUpperCase();
+                createRoom(newCode);
+            });
         }
         
         function createMultiplayerRoom() {
